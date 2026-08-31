@@ -48,10 +48,17 @@ async def _enrich(db, sched: dict) -> dict:
 
 async def resolve_recipients(db, sched: dict) -> list:
     ctx = await _enrich(db, sched)
-    admin_email = os.environ.get("ADMIN_EMAIL")
+    # Admin recipients come from Settings (comma-separated), falling back to the
+    # ADMIN_EMAIL env var when not configured.
+    smtp = await db.app_settings.find_one({"key": "smtp_settings"}) or {}
+    admins = [e.strip() for e in (smtp.get("admin_alert_emails") or "").split(",") if e.strip()]
+    if not admins:
+        env = os.environ.get("ADMIN_EMAIL")
+        if env:
+            admins = [env]
     client_email = (ctx["client"] or {}).get("email")
     seen, out = set(), []
-    for e in (admin_email, client_email):
+    for e in (*admins, client_email):
         if e and e not in seen:
             seen.add(e)
             out.append(e)

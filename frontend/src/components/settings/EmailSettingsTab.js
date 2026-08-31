@@ -6,11 +6,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import { toast } from '@/components/ui/sonner';
 import { Mail, Save, ShieldCheck, Send, Code2 } from 'lucide-react';
 
 const EmailSettingsTab = () => {
-  const [form, setForm] = useState({ smtp_host: '', smtp_port: 587, username: '', password: '', from_email: '' });
+  const [form, setForm] = useState({ smtp_host: '', smtp_port: 587, username: '', password: '', from_email: '', email_enabled: true, admin_alert_emails: '' });
   const [hasPassword, setHasPassword] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -30,7 +31,7 @@ const EmailSettingsTab = () => {
     setLoading(true);
     api.get('/settings/email')
       .then(({ data }) => {
-        setForm({ smtp_host: data.smtp_host || '', smtp_port: data.smtp_port || 587, username: data.username || '', password: '', from_email: data.from_email || '' });
+        setForm({ smtp_host: data.smtp_host || '', smtp_port: data.smtp_port || 587, username: data.username || '', password: '', from_email: data.from_email || '', email_enabled: data.email_enabled !== false, admin_alert_emails: data.admin_alert_emails || '' });
         setHasPassword(!!data.has_password);
       })
       .catch((e) => toast.error(formatApiErrorDetail(e.response?.data?.detail)))
@@ -61,6 +62,7 @@ const EmailSettingsTab = () => {
       const { data } = await api.put('/settings/email', {
         smtp_host: form.smtp_host, smtp_port: Number(form.smtp_port) || 587,
         username: form.username, from_email: form.from_email, password: form.password || undefined,
+        email_enabled: form.email_enabled, admin_alert_emails: form.admin_alert_emails,
       });
       setHasPassword(!!data.has_password);
       setForm((p) => ({ ...p, password: '' }));
@@ -107,6 +109,17 @@ const EmailSettingsTab = () => {
           </div>
           {loading ? <div className="text-[#64748B]">Loading…</div> : (
             <>
+              <div className="flex items-center justify-between rounded-lg border border-[#E2E8F0] dark:border-[#27272A] p-3">
+                <div>
+                  <Label className="text-sm font-medium">Enable email sending</Label>
+                  <p className="text-xs text-[#94A3B8]">When off, no alert or test emails are sent.</p>
+                </div>
+                <Switch checked={form.email_enabled} onCheckedChange={(v) => setF('email_enabled', v)} data-testid="email-enabled-switch" />
+              </div>
+              <div className="space-y-2">
+                <Label>Admin Alert Emails <span className="text-xs text-[#94A3B8]">(comma-separated — all admin alerts go here)</span></Label>
+                <Input value={form.admin_alert_emails} onChange={(e) => setF('admin_alert_emails', e.target.value)} placeholder="ops@company.com, security@company.com" data-testid="admin-alert-emails-input" />
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div className="space-y-2 sm:col-span-2"><Label>SMTP Host</Label><Input value={form.smtp_host} onChange={(e) => setF('smtp_host', e.target.value)} placeholder="smtp.gmail.com" data-testid="smtp-host-input" /></div>
                 <div className="space-y-2"><Label>SMTP Port</Label><Input type="number" value={form.smtp_port} onChange={(e) => setF('smtp_port', e.target.value)} placeholder="587" data-testid="smtp-port-input" /></div>

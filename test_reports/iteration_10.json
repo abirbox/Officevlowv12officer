@@ -1,0 +1,25 @@
+{
+  "summary": "Frontend-only verification of Settings > Email (enable/disable toggle, admin alert emails, SMTP save+persist, real SMTP test send, disabled blocks sending). Logged in as admin@example.com, dismissed portal chooser (portal-select-dispatch), opened /dashboard/settings > tab-email. ALL 5 requested scenarios PASSED. (1) email-settings-tab renders 'Enable email sending' switch (email-enabled-switch, default checked) and 'Admin Alert Emails' input (admin-alert-emails-input); email-test-card and email-status present; initial status read 'Not configured'. (2) Saved SMTP Host=smtp.example.invalid, Port=587, From=from@example.com, Username=u@example.com, Password=secret123, Admin Alert Emails='ops@company.com, security@company.com' with switch ON -> success toast 'Email settings saved'. (3) After full page reload + re-navigating to Settings > Email, persistence verified exactly: host='smtp.example.invalid', port='587', from='from@example.com', username='u@example.com', admin_alert_emails='ops@company.com, security@company.com', switch data-state='checked', password field blank with the '(leave blank to keep current)' hint visible, and email-status now reads 'Configured (smtp)'. (4) Send Test to admin@example.com produced a WARNING toast with a genuine SMTP error: 'Error connecting to smtp.example.invalid on port 587: [Errno -2] Name or service not known' — confirming a real SMTP connection attempt (not a fake success, not the 'not configured' message). Button re-enabled after the request. (5) Toggling the switch OFF + Save persisted (unchecked after reload) and Send Test then returned the warning toast 'Email sending is currently disabled. Enable it above to send emails.' Note: earlier run's toasts appeared empty only because of an over-long wait (sonner auto-dismisses); re-ran with 500ms polling and all toasts were captured.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Optional cleanup: the environment is left with email ENABLED and a deliberately invalid SMTP host (smtp.example.invalid). Any real alert/password-reset email will now fail with a DNS error until the host is cleared or replaced with valid creds."
+  ],
+  "critical_code_review_comments": [
+    "EmailSettingsTab.save() requires a password on the first save but does not validate smtp_port range or admin_alert_emails format client-side; malformed entries are accepted silently (low severity, backend should validate).",
+    "The Send Test request can take ~5-15s on SMTP DNS/connect failure; only the button label changes to 'Sending…' with no spinner near the test card — acceptable but a progress indicator would improve UX."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (frontend-only request)", "frontend": "100% (5/5 scenarios)"},
+  "seed_data_creation": "Settings mutated only: org email settings set to fake SMTP (smtp.example.invalid), admin_alert_emails='ops@company.com, security@company.com', email_enabled=true (left ON at end of run).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@example.com / admin123 (super_admin) from /app/memory/test_credentials.md",
+  "context_for_next_testing_agent": "Path: login -> portal-select-dispatch -> /dashboard/settings -> [data-testid=tab-email]. Email settings currently persist a FAKE SMTP host smtp.example.invalid with email_enabled=true and admin_alert_emails set; Send Test therefore always warns with a DNS error — that is expected proof of a real SMTP attempt, not a bug. When asserting sonner toasts, poll every ~500ms immediately after the click (they auto-dismiss in ~4s); a single wait_for_timeout(10s+) will miss them. Switch state is read via data-state=checked/unchecked on [data-testid=email-enabled-switch].",
+  "rca_of_the_issue": "N/A - no defects found. First-run empty toast captures were a test-harness timing artifact (toast auto-dismissal), resolved by polling."
+}

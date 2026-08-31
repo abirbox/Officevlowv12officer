@@ -4,12 +4,16 @@ import logging
 from email.message import EmailMessage
 
 from utils.smtp import load_smtp_credentials
+from utils.smtp import get_smtp_doc
 from utils.email import send_email_with_attachment
 
 logger = logging.getLogger(__name__)
 
 
 async def send_email(db, *, to: str, subject: str, html: str, from_name: str | None = None) -> dict:
+    doc = await get_smtp_doc(db) or {}
+    if doc.get("email_enabled") is False:
+        return {"sent": False, "transport": "none", "reason": "email_disabled"}
     creds = await load_smtp_credentials(db)
     if creds:
         try:

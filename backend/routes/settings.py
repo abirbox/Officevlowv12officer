@@ -157,13 +157,14 @@ async def get_email_settings(request: Request, db=Depends(get_db)):
         "username": doc.get("username", ""),
         "from_email": doc.get("from_email", ""),
         "has_password": bool(doc.get("password_enc")),
+        "email_enabled": doc.get("email_enabled", True),
+        "admin_alert_emails": doc.get("admin_alert_emails", ""),
     }
 
 
 @router.put("/email")
 async def update_email_settings(payload: EmailSettingsUpdate, request: Request, db=Depends(get_db)):
     await require_admin(request, db)
-    existing = await get_smtp_doc(db)
     update = {
         "key": SMTP_KEY,
         "host": (payload.smtp_host or "").strip(),
@@ -172,6 +173,10 @@ async def update_email_settings(payload: EmailSettingsUpdate, request: Request, 
         "from_email": (payload.from_email or "").strip(),
         "updated_at": datetime.now(timezone.utc),
     }
+    if payload.email_enabled is not None:
+        update["email_enabled"] = bool(payload.email_enabled)
+    if payload.admin_alert_emails is not None:
+        update["admin_alert_emails"] = payload.admin_alert_emails.strip()
     # Password: only overwrite when a new one is supplied; blank keeps current.
     if payload.password:
         update["password_enc"] = encrypt_secret(payload.password)
@@ -187,6 +192,8 @@ async def update_email_settings(payload: EmailSettingsUpdate, request: Request, 
         "username": doc.get("username", ""),
         "from_email": doc.get("from_email", ""),
         "has_password": bool(doc.get("password_enc")),
+        "email_enabled": doc.get("email_enabled", True),
+        "admin_alert_emails": doc.get("admin_alert_emails", ""),
     }
 
 
@@ -246,6 +253,8 @@ async def send_test_email(payload: dict, request: Request, db=Depends(get_db)):
         reason = result.get("reason") or "email not configured"
         if reason == "no_api_key":
             reason = "Email is not configured. Add SMTP settings above (or a Resend key) to send email."
+        elif reason == "email_disabled":
+            reason = "Email sending is currently disabled. Enable it above to send emails."
         return {"sent": False, "transport": result.get("transport"), "message": reason}
     return {"sent": True, "transport": result.get("transport"),
             "message": f"Test email sent to {to} via {result.get('transport')}."}

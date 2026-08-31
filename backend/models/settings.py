@@ -87,6 +87,8 @@ class EmailSettingsUpdate(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None  # blank/omitted = keep existing
     from_email: Optional[str] = None
+    email_enabled: Optional[bool] = None
+    admin_alert_emails: Optional[str] = None  # comma-separated admin recipients
 
 
 # ISO-4217 currency directory
