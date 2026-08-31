@@ -25,21 +25,32 @@ const SHIFT_COLORS = {
 
 const createOfficerIcon = (o, highlighted, stale) => {
   const shiftType = o.shift_type;
-  const color = stale ? '#94a3b8' : (SHIFT_COLORS[shiftType] || '#22c55e');
+  const offline = o.is_offline;
+  const outside = o.geofence_status === 'outside';
+  const color = offline ? '#94a3b8' : (SHIFT_COLORS[shiftType] || '#22c55e');
   const size = highlighted ? 40 : 32;
-  const ring = highlighted ? '4px solid #0EA5E9' : '3px solid white';
-  const pulse = stale ? '' : `box-shadow:0 0 0 6px ${color}22;`;
+  const ring = highlighted ? '4px solid #0EA5E9' : (outside ? '3px solid #ef4444' : '3px solid white');
+  const pulse = offline ? 'opacity:0.65;' : (outside ? 'box-shadow:0 0 0 6px #ef444433;' : `box-shadow:0 0 0 6px ${color}22;`);
   const img = o.officer_image;
   const bg = img
     ? `background:url('${img}') center/cover no-repeat, ${color};`
     : `background:${color};`;
   const inner = img ? '' : (shiftType ? shiftType.charAt(0) : 'S');
+  const badge = offline
+    ? '<span style="position:absolute;bottom:-2px;right:-2px;width:13px;height:13px;border-radius:50%;background:#ef4444;border:2px solid white;"></span>'
+    : (outside ? '<span style="position:absolute;bottom:-2px;right:-2px;width:13px;height:13px;border-radius:50%;background:#f59e0b;border:2px solid white;"></span>' : '');
   return L.divIcon({
     className: 'officer-live-marker',
-    html: `<div style="${bg}width:${size}px;height:${size}px;border-radius:50%;border:${ring};${pulse}display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:12px;overflow:hidden;">${inner}</div>`,
+    html: `<div style="position:relative;${bg}width:${size}px;height:${size}px;border-radius:50%;border:${ring};${pulse}display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:12px;overflow:visible;"><span style="width:100%;height:100%;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;${bg}">${inner}</span>${badge}</div>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
+};
+
+const statusLabel = (o) => {
+  if (o.is_offline) return { text: 'Offline', cls: 'text-red-600 bg-red-100 dark:bg-red-900/30 dark:text-red-400' };
+  if (o.geofence_status === 'outside') return { text: 'Outside geofence', cls: 'text-amber-600 bg-amber-100 dark:bg-amber-900/30 dark:text-amber-400' };
+  return { text: 'On duty', cls: 'text-green-700 bg-green-100 dark:bg-green-900/30 dark:text-green-400' };
 };
 
 const MapFlyer = ({ target }) => {
@@ -242,6 +253,9 @@ const LiveTrackingPage = () => {
                             <Shield className="w-4 h-4 text-[#0EA5E9]" /> {o.officer_name || 'Officer'}
                           </p>
                           {o.officer_code && <p className="text-xs text-gray-500">{o.officer_code}</p>}
+                          <span className={`inline-block mt-1 px-2 py-0.5 rounded-full text-[11px] font-semibold ${statusLabel(o).cls}`} data-testid={`live-status-${o.schedule_id}`}>
+                            {statusLabel(o).text}
+                          </span>
                           <div className="mt-2 space-y-1 text-xs text-gray-700">
                             <p className="flex items-center gap-1"><Hash className="w-3 h-3" /> Post: <span className="font-medium">{o.post_pin || '—'}</span> {o.post_name ? `· ${o.post_name}` : ''}</p>
                             <p className="flex items-center gap-1"><Building2 className="w-3 h-3" /> {o.client_name || '—'}{o.city ? ` · ${o.city}` : ''}</p>
@@ -310,6 +324,9 @@ const LiveTrackingPage = () => {
                           {o.shift_type || 'Shift'}
                         </Badge>
                       </div>
+                      <span className={`inline-block px-2 py-0.5 rounded-full text-[11px] font-semibold ${statusLabel(o).cls}`} data-testid={`live-officer-status-${o.schedule_id}`}>
+                        {statusLabel(o).text}
+                      </span>
                       <p className="text-xs text-[#64748B] mt-1">{o.start_time}–{o.end_time} · {o.check_in_count} check-in{o.check_in_count === 1 ? '' : 's'}</p>
                       {o.position ? (
                         <p className={`text-xs flex items-center gap-1 mt-1 font-medium ${stale ? 'text-[#94A3B8]' : 'text-[#0EA5E9]'}`}>

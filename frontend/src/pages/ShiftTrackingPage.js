@@ -114,6 +114,23 @@ export default function ShiftTrackingPage() {
 
   const ping = () => ({ latitude: pos?.lat ?? null, longitude: pos?.lng ?? null });
 
+  // Heartbeat: while clocked in, ping the server every 45s so dispatch knows
+  // the officer is online and the live map pin follows them.
+  const posRef = useRef(null);
+  useEffect(() => { posRef.current = pos; }, [pos]);
+  useEffect(() => {
+    if (!data || data.shift_status !== 'Clocked In') return;
+    const beat = () => {
+      const p = posRef.current;
+      api.post(`/shift-track/${token}/ping`, {
+        latitude: p?.lat ?? null, longitude: p?.lng ?? null,
+      }).catch(() => {});
+    };
+    beat();
+    const id = setInterval(beat, 45000);
+    return () => clearInterval(id);
+  }, [data?.shift_status, token]);
+
   if (loading) {
     return (
       <Shell>

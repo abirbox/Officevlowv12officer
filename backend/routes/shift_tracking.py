@@ -201,8 +201,10 @@ async def clock_in(token: str, ping: GeoPing, db=Depends(get_db)):
         "actual_check_in": now.isoformat(),
         "next_check_in_due_at": now + timedelta(seconds=CHECKIN_INTERVAL_SECONDS),
         "last_check_in_at": now,
+        "last_seen_at": now,
+        "last_ping_location": {"lat": ping.latitude, "lng": ping.longitude},
         "clock_in_location": {"lat": ping.latitude, "lng": ping.longitude},
-        "tracking_alerts": {"missed_checkin_windows": [], "missed_clockout_sent": False},
+        "tracking_alerts": {"missed_checkin_windows": [], "missed_clockout_sent": False, "offline_sent": False},
         "updated_at": now,
     }})
     await _action_history(db, sched, "Clocked In")
@@ -224,7 +226,10 @@ async def check_in(token: str, ping: GeoPing, db=Depends(get_db)):
         "$push": {"check_ins": entry},
         "$set": {
             "last_check_in_at": now,
+            "last_seen_at": now,
+            "last_ping_location": {"lat": ping.latitude, "lng": ping.longitude},
             "next_check_in_due_at": now + timedelta(seconds=CHECKIN_INTERVAL_SECONDS),
+            "tracking_alerts.offline_sent": False,
             "updated_at": now,
         },
     })
@@ -302,6 +307,28 @@ async def cancel_shift(token: str, db=Depends(get_db)):
     return await _build_payload(db, fresh)
 
 
+async def _trigger_geofence_alert(db, sched, now, lat, lng):
+    """Email + notify + record a geofence breach, throttled so an officer who
+    lingers just outside the fence doesn't spam alerts. Returns True if sent."""
+    last = sched.get("geofence_exit_emailed_at")
+    if isinstance(last, datetime):
+        ls = last if last.tzinfo else last.replace(tzinfo=timezone.utc)
+        if (now - ls).total_seconds() <= GEOFENCE_EMAIL_THROTTLE_SECONDS:
+            return False
+    await send_geofence_exit(db, sched, now, lat, lng)
+    await db.dispatch_schedules.update_one(
+        {"_id": sched["_id"]}, {"$set": {"geofence_exit_emailed_at": now}})
+    from routes.dispatch import notify_dispatch_users
+    name = await _officer_name(db, sched.get("officer_id")) or "An officer"
+    await notify_dispatch_users(
+        db, sched.get("client_id"),
+        title=f"🚨 Officer left geofence — {name}",
+        message=f"{name} left the assigned area ({sched.get('date')} {sched.get('start_time')}–{sched.get('end_time')}).",
+        event={"type": "dispatch_geofence_exit", "schedule_id": str(sched["_id"])},
+    )
+    return True
+
+
 @router.post("/{token}/geofence-exit")
 async def geofence_exit(token: str, ping: GeoPing, db=Depends(get_db)):
     sched = await _load(db, token)
@@ -309,13 +336,52 @@ async def geofence_exit(token: str, ping: GeoPing, db=Depends(get_db)):
         return {"ok": True, "emailed": False}
     now = _now()
     entry = {"at": now, "lat": ping.latitude, "lng": ping.longitude}
-    await db.dispatch_schedules.update_one({"_id": sched["_id"]},
-                                           {"$push": {"geofence_exits": entry}})
-    last = sched.get("geofence_exit_emailed_at")
-    emailed = False
-    if not isinstance(last, datetime) or (now - (last.replace(tzinfo=timezone.utc) if last.tzinfo is None else last)).total_seconds() > GEOFENCE_EMAIL_THROTTLE_SECONDS:
-        await send_geofence_exit(db, sched, now, ping.latitude, ping.longitude)
-        await db.dispatch_schedules.update_one({"_id": sched["_id"]},
-                                               {"$set": {"geofence_exit_emailed_at": now}})
-        emailed = True
+    await db.dispatch_schedules.update_one({"_id": sched["_id"]}, {
+        "$push": {"geofence_exits": entry},
+        "$set": {
+            "last_seen_at": now,
+            "last_ping_location": {"lat": ping.latitude, "lng": ping.longitude},
+        },
+    })
+    emailed = await _trigger_geofence_alert(db, sched, now, ping.latitude, ping.longitude)
+    fresh = await _load(db, token)
+    await broadcast_live_update(db, fresh)
     return {"ok": True, "emailed": emailed}
+
+
+@router.post("/{token}/ping")
+async def ping_location(token: str, ping: GeoPing, db=Depends(get_db)):
+    """Lightweight heartbeat from the officer's shift page. Keeps them 'online',
+    moves their live map pin, and flags a geofence breach server-side."""
+    sched = await _load(db, token)
+    if sched.get("shift_status") != "Clocked In":
+        return {"ok": True}
+    now = _now()
+    set_doc = {"last_seen_at": now, "updated_at": now}
+    if ping.latitude is not None and ping.longitude is not None:
+        set_doc["last_ping_location"] = {"lat": ping.latitude, "lng": ping.longitude}
+    was_offline = bool((sched.get("tracking_alerts") or {}).get("offline_sent"))
+    if was_offline:
+        set_doc["tracking_alerts.offline_sent"] = False
+    await db.dispatch_schedules.update_one({"_id": sched["_id"]}, {"$set": set_doc})
+
+    if ping.latitude is not None and ping.longitude is not None:
+        post = await _post(db, sched)
+        within, _dist, configured = geofence_check(post, ping.latitude, ping.longitude)
+        if configured and not within:
+            await _trigger_geofence_alert(db, await _load(db, token), now,
+                                          ping.latitude, ping.longitude)
+
+    fresh = await _load(db, token)
+    await broadcast_live_update(db, fresh)
+    if was_offline:
+        from routes.dispatch import notify_dispatch_users
+        name = await _officer_name(db, sched.get("officer_id")) or "An officer"
+        await notify_dispatch_users(
+            db, sched.get("client_id"),
+            title=f"✅ Officer back online — {name}",
+            message=f"{name} is sending location again ({sched.get('date')} {sched.get('start_time')}–{sched.get('end_time')}).",
+            event={"type": "dispatch_officer_online", "schedule_id": str(sched["_id"])},
+        )
+    return {"ok": True}
+

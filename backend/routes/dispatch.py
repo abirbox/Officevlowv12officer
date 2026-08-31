@@ -35,6 +35,11 @@ SPECIAL_OFFICERS = {"TEMP", "OPEN_SHIFT"}
 UMA_TIME = "UMA"
 from utils.storage import to_public_url
 from utils.ws import manager
+from utils.geo import haversine_m
+
+# An officer is considered "offline" if no heartbeat/location ping arrives
+# within this window (seconds). Shared by the live entry + the alert scan.
+OFFLINE_THRESHOLD_SECONDS = 180
 
 
 async def _block_client_role(request: Request):
@@ -1429,12 +1434,18 @@ async def build_live_entry(db, d: dict) -> dict:
     source = None
     pos_at = None
     check_ins = d.get("check_ins") or []
-    for entry in reversed(check_ins):
-        if entry.get("lat") is not None and entry.get("lng") is not None:
-            pos = {"lat": entry["lat"], "lng": entry["lng"]}
-            source = "check_in"
-            pos_at = _iso_val(entry.get("at"))
-            break
+    lp = d.get("last_ping_location") or {}
+    if lp.get("lat") is not None and lp.get("lng") is not None:
+        pos = {"lat": lp["lat"], "lng": lp["lng"]}
+        source = "ping"
+        pos_at = _iso_val(d.get("last_seen_at"))
+    if pos is None:
+        for entry in reversed(check_ins):
+            if entry.get("lat") is not None and entry.get("lng") is not None:
+                pos = {"lat": entry["lat"], "lng": entry["lng"]}
+                source = "check_in"
+                pos_at = _iso_val(entry.get("at"))
+                break
     if pos is None:
         ci = d.get("clock_in_location") or {}
         if ci.get("lat") is not None and ci.get("lng") is not None:
@@ -1444,6 +1455,22 @@ async def build_live_entry(db, d: dict) -> dict:
     if pos is None and geo_lat is not None and geo_lng is not None:
         pos = {"lat": geo_lat, "lng": geo_lng}
         source = "geofence"
+
+    # Inside/outside the geofence, based on the freshest known position.
+    geofence_status = None
+    if pos and source != "geofence" and geo_lat is not None and geo_lng is not None:
+        dist_m = haversine_m(float(geo_lat), float(geo_lng), float(pos["lat"]), float(pos["lng"]))
+        radius = post.get("geofence_radius_m") or 150
+        geofence_status = "inside" if dist_m <= float(radius) else "outside"
+
+    # Offline = no heartbeat/location ping within the threshold (only applies
+    # once an officer has actually pinged, so non-heartbeating shifts aren't
+    # falsely flagged).
+    is_offline = False
+    last_seen = d.get("last_seen_at")
+    if isinstance(last_seen, datetime):
+        ls = last_seen if last_seen.tzinfo else last_seen.replace(tzinfo=timezone.utc)
+        is_offline = (datetime.now(timezone.utc) - ls).total_seconds() > OFFLINE_THRESHOLD_SECONDS
 
     base = os.environ.get("FRONTEND_URL", "").rstrip("/")
     token = d.get("tracking_token")
@@ -1467,6 +1494,9 @@ async def build_live_entry(db, d: dict) -> dict:
         "position": pos,
         "position_source": source,
         "position_at": pos_at,
+        "geofence_status": geofence_status,
+        "is_offline": is_offline,
+        "last_seen_at": _iso_val(d.get("last_seen_at")),
         "geofence": {
             "lat": geo_lat, "lng": geo_lng,
             "radius_m": post.get("geofence_radius_m") or 150,
@@ -1512,6 +1542,26 @@ async def broadcast_live_update(db, sched: dict, removed: bool = False):
             "removed": removed,
             "officer": entry,
         })
+    except Exception:
+        pass
+
+
+async def notify_dispatch_users(db, client_id, title, message,
+                                link="/dashboard/dispatch/live-tracking", event=None):
+    """Insert a system notification for all dispatch viewers (+ linked client)
+    and push it live over the WebSocket. Best-effort."""
+    try:
+        ids = await live_recipients(db, client_id)
+        now = _now()
+        if ids:
+            await db.notifications.insert_many([{
+                "id": str(uuid.uuid4()), "user_id": uid, "title": title,
+                "message": message, "type": "dispatch", "link": link,
+                "read": False, "created_at": now,
+            } for uid in ids])
+        payload = {"title": title, "message": message, "created_at": now.isoformat()}
+        payload.update(event or {"type": "dispatch_alert"})
+        await manager.send_to_users(ids, payload)
     except Exception:
         pass
 

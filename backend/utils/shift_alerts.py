@@ -19,6 +19,7 @@ CHECKIN_INTERVAL_SECONDS = 3600      # hourly check-in
 GRACE_SECONDS = 15 * 60              # 15 minute grace
 CLOCKOUT_GRACE_SECONDS = 15 * 60     # 15 minutes past end time
 MISSED_CLOCKIN_SECONDS = 10 * 60     # alert if not clocked in 10 min after start
+OFFLINE_THRESHOLD_SECONDS = 180      # no heartbeat/ping for 3 min => offline
 
 
 def _fmt(dt: datetime) -> str:
@@ -135,9 +136,46 @@ async def send_geofence_exit(db, sched: dict, at: datetime, lat, lng):
     logger.info("Geofence exit alert sent for schedule %s to %s", sched.get("_id"), recipients)
 
 
+async def send_officer_offline(db, sched: dict, last_seen: datetime):
+    recipients, ctx = await resolve_recipients(db, sched)
+    officer = (ctx["officer"] or {}).get("name", "The officer")
+    subject = f"🔴 Officer offline — {officer}"
+    html = (
+        f"<h2>Officer Offline Alert</h2>"
+        f"<p>{officer}'s device has stopped sending location updates during an "
+        f"active shift (last seen {_fmt(last_seen)}).</p>"
+        f"<p>{_shift_line(sched, ctx)}</p>"
+        f"<p>Time of alert: {_fmt(datetime.now(timezone.utc))}</p>"
+    )
+    await _send_all(recipients, subject, html)
+    logger.info("Officer offline alert sent for schedule %s to %s", sched.get("_id"), recipients)
+
+
 async def _scan_one(db, s: dict, now: datetime):
     alerts = s.get("tracking_alerts") or {}
     windows = list(alerts.get("missed_checkin_windows") or [])
+
+    # ---- Officer offline (no heartbeat within threshold) ----
+    if not alerts.get("offline_sent"):
+        last_seen = s.get("last_seen_at")
+        if isinstance(last_seen, datetime):
+            ls = last_seen if last_seen.tzinfo else last_seen.replace(tzinfo=timezone.utc)
+            if (now - ls).total_seconds() > OFFLINE_THRESHOLD_SECONDS:
+                await send_officer_offline(db, s, ls)
+                await db.dispatch_schedules.update_one(
+                    {"_id": s["_id"]}, {"$set": {"tracking_alerts.offline_sent": True}})
+                try:
+                    from routes.dispatch import notify_dispatch_users, broadcast_live_update
+                    name = (await _enrich(db, s))["officer"].get("name", "An officer")
+                    await notify_dispatch_users(
+                        db, s.get("client_id"),
+                        title=f"🔴 Officer offline — {name}",
+                        message=f"{name} stopped sending location ({s.get('date')} {s.get('start_time')}–{s.get('end_time')}).",
+                        event={"type": "dispatch_officer_offline", "schedule_id": str(s["_id"])},
+                    )
+                    await broadcast_live_update(db, await db.dispatch_schedules.find_one({"_id": s["_id"]}))
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("offline notify/broadcast failed: %s", e)
 
     # ---- Missed hourly check-in ----
     due = s.get("next_check_in_due_at")
