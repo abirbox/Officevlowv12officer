@@ -23,14 +23,20 @@ const SHIFT_COLORS = {
   Morning: '#f59e0b', Afternoon: '#0ea5e9', Evening: '#f97316', Night: '#6366f1',
 };
 
-const createOfficerIcon = (shiftType, highlighted, stale) => {
+const createOfficerIcon = (o, highlighted, stale) => {
+  const shiftType = o.shift_type;
   const color = stale ? '#94a3b8' : (SHIFT_COLORS[shiftType] || '#22c55e');
-  const size = highlighted ? 34 : 26;
+  const size = highlighted ? 40 : 32;
   const ring = highlighted ? '4px solid #0EA5E9' : '3px solid white';
   const pulse = stale ? '' : `box-shadow:0 0 0 6px ${color}22;`;
+  const img = o.officer_image;
+  const bg = img
+    ? `background:url('${img}') center/cover no-repeat, ${color};`
+    : `background:${color};`;
+  const inner = img ? '' : (shiftType ? shiftType.charAt(0) : 'S');
   return L.divIcon({
     className: 'officer-live-marker',
-    html: `<div style="background:${color};width:${size}px;height:${size}px;border-radius:50%;border:${ring};${pulse}display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:11px;">${shiftType ? shiftType.charAt(0) : 'S'}</div>`,
+    html: `<div style="${bg}width:${size}px;height:${size}px;border-radius:50%;border:${ring};${pulse}display:flex;align-items:center;justify-content:center;color:white;font-weight:700;font-size:12px;overflow:hidden;">${inner}</div>`,
     iconSize: [size, size],
     iconAnchor: [size / 2, size / 2],
   });
@@ -220,7 +226,7 @@ const LiveTrackingPage = () => {
                       key={o.schedule_id}
                       ref={(el) => { if (el) markerRefs.current[o.schedule_id] = el; }}
                       position={[o.position.lat, o.position.lng]}
-                      icon={createOfficerIcon(o.shift_type, selectedId === o.schedule_id, stale)}
+                      icon={createOfficerIcon(o, selectedId === o.schedule_id, stale)}
                       eventHandlers={{ click: () => setSelectedId(o.schedule_id) }}
                     >
                       {o.geofence?.configured && (
@@ -293,8 +299,8 @@ const LiveTrackingPage = () => {
                       data-testid={`live-officer-${o.schedule_id}`}
                     >
                       <div className="flex items-center gap-2 mb-1">
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0" style={{ background: SHIFT_COLORS[o.shift_type] || '#22c55e' }}>
-                          {(o.officer_name || 'S').charAt(0).toUpperCase()}
+                        <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 overflow-hidden bg-cover bg-center" style={o.officer_image ? { backgroundImage: `url(${o.officer_image})` } : { background: SHIFT_COLORS[o.shift_type] || '#22c55e' }}>
+                          {o.officer_image ? '' : (o.officer_name || 'S').charAt(0).toUpperCase()}
                         </div>
                         <div className="flex-1 min-w-0">
                           <p className="text-sm font-medium truncate text-[#0F172A] dark:text-[#FAFAFA]">{o.officer_name || 'Officer'}</p>

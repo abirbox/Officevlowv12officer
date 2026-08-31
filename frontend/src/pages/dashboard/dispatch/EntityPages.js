@@ -46,6 +46,7 @@ export const OfficersPage = () => (
   <EntityCrudPage
     title="Security Officers" endpoint="/dispatch/officers" permBase="dispatch.officers"
     columns={[
+      { key: 'profile_image', label: 'Photo', type: 'logo' },
       { key: 'officer_code', label: 'Officer Code' },
       { key: 'name', label: 'Officer Name' },
       { key: 'client_name', label: 'Client' },
@@ -77,6 +78,7 @@ export const OfficersPage = () => (
       },
     ]}
     fields={[
+      { key: 'profile_image', label: 'Profile Image', type: 'logo' },
       { key: 'name', label: 'Name', required: true },
       { key: 'officer_code', label: 'Officer Code', readOnly: true },
       { key: 'contact_number', label: 'Contact Number', required: true },

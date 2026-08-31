@@ -1451,6 +1451,7 @@ async def build_live_entry(db, d: dict) -> dict:
         "schedule_id": str(d["_id"]),
         "officer_name": (off or {}).get("name"),
         "officer_code": (off or {}).get("officer_code"),
+        "officer_image": (off or {}).get("profile_image"),
         "client_name": (cli or {}).get("name"),
         "post_pin": post.get("post_pin"),
         "post_name": post.get("name"),
