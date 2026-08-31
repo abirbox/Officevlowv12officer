@@ -186,6 +186,7 @@ class ScheduleCreate(BaseModel):
     duty_rate: Optional[float] = None
     billing_rate: Optional[float] = None
     remarks: Optional[str] = None
+    site_instruction: Optional[str] = None
 
 class ScheduleUpdate(BaseModel):
     date: Optional[str] = None
@@ -204,6 +205,7 @@ class ScheduleUpdate(BaseModel):
     work_order_number: Optional[str] = None
     remarks: Optional[str] = None
     last_modified_remarks: Optional[str] = None
+    site_instruction: Optional[str] = None
     shift_status: Optional[str] = None
     actual_check_in: Optional[str] = None
     actual_check_out: Optional[str] = None

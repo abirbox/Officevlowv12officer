@@ -223,6 +223,16 @@ export default function ShiftTrackingPage() {
           <Detail icon={ShieldAlert} label="Client" value={data.client_name || '—'} />
         </div>
 
+        {/* Site instructions from the schedule */}
+        {data.site_instruction && (
+          <div className="rounded-xl border border-sky-500/30 bg-sky-500/5 p-4 mb-5" data-testid="site-instruction">
+            <div className="flex items-center gap-2 text-xs uppercase tracking-wide text-sky-300 font-semibold mb-1.5">
+              <ShieldAlert className="w-3.5 h-3.5" /> Site Instructions
+            </div>
+            <p className="text-slate-200 text-sm whitespace-pre-wrap break-words">{data.site_instruction}</p>
+          </div>
+        )}
+
         {/* Live tracking state */}
         {(clockedIn || clockedOut) && (
           <div className="rounded-xl border border-white/10 bg-white/5 p-4 mb-5 text-sm space-y-1.5" data-testid="tracking-state">

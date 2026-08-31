@@ -95,6 +95,7 @@ async def _build_payload(db, sched: dict) -> dict:
         "end_time": sched.get("end_time"),
         "duty_hours": sched.get("duty_hours"),
         "duty_rate": sched.get("duty_rate"),
+        "site_instruction": sched.get("site_instruction"),
         "shift_status": sched.get("shift_status"),
         "geofence": {
             "latitude": post.get("latitude"),
@@ -142,6 +143,18 @@ async def _post(db, sched):
         return {}
 
 
+async def _officer_name(db, officer_id):
+    """Safely resolve an officer's name. Schedule officer_id may be a special
+    sentinel ('TEMP'/'OPEN_SHIFT') that is not a valid ObjectId."""
+    if not officer_id:
+        return None
+    try:
+        doc = await db.dispatch_officers.find_one({"_id": ObjectId(officer_id)})
+    except Exception:
+        return None
+    return (doc or {}).get("name")
+
+
 async def _action_history(db, sched, action, remarks=None):
     await db.dispatch_action_history.insert_one({
         "schedule_id": str(sched["_id"]),
@@ -150,8 +163,7 @@ async def _action_history(db, sched, action, remarks=None):
         "new_value": action,
         "remarks": remarks,
         "actor_id": None,
-        "actor_name": (await db.dispatch_officers.find_one(
-            {"_id": ObjectId(sched["officer_id"])}) or {}).get("name") if sched.get("officer_id") else None,
+        "actor_name": await _officer_name(db, sched.get("officer_id")),
         "actor_role": "officer",
         "at": _now(),
     })

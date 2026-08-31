@@ -1,0 +1,35 @@
+{
+  "summary": "Frontend-only verification of 3 change requests: (1) Site Instruction field in Add New Schedule dialog, (2) Site Instructions section on officer public shift page, (3) Emergency Clock Out remark shown in Dispatch Schedule Remarks column. All three UI surfaces PASS. Full create-schedule flow with site_instruction succeeded via UI and persisted (verified via GET /api/dispatch/schedules). Found one CRITICAL backend 500 bug (unrelated to the change request but blocks officer clock-in/emergency clock-out) for shifts assigned to Temporary Officer / Open Shift.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/shift-track/{token}/clock-in, /check-in, /clock-out, /emergency-clock-out", "issue": "500 Internal Server Error when the schedule's officer_id is the special value 'TEMP' (Temporary Officer) or 'OPEN_SHIFT'. routes/shift_tracking.py::_action_history line ~155 calls ObjectId(sched['officer_id']) -> bson.errors.InvalidId: 'TEMP' is not a valid ObjectId. DB write happens BEFORE the crash, so status/emergency remark are persisted but the officer UI gets a 500 error and no updated payload (broken officer experience for TEMP/Open Shift schedules). Fix: guard ObjectId conversion in _action_history (try/except or skip special ids).", "priority": "CRITICAL"}
+    ],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Add New Schedule dialog - Post Site selection", "issue": "Selecting a Post Site overwrites client_id/vendor_id with the post site's own values; when the post site references a client not in the loaded client list, the Client/Vendor selects become blank and Save fails with toast 'Invalid client'. Selecting post site LAST silently invalidates a valid form. Suggest not clearing/overwriting with unresolvable ids, or showing an inline field-level error.", "affected_selectors": ["[data-testid=\"sf-post\"]", "[data-testid=\"sf-client\"]", "[data-testid=\"save-schedule\"]"]}
+    ],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Fix 500 in routes/shift_tracking.py::_action_history for officer_id 'TEMP'/'OPEN_SHIFT' (all 4 officer tracking actions affected).",
+    "Review Add Schedule dialog post-site->client/vendor auto-fill overwrite that can produce 'Invalid client' on save.",
+    "Optional cleanup: remove QA test data — schedule id 6a95f2d64950e10281c1d7f8 (token ea223c6c2bb443d38e66f1b0a827613f) and vendor code TESTV1 'TEST_Vendor QA'."
+  ],
+  "critical_code_review_comments": [
+    "_action_history() in shift_tracking.py must not assume officer_id is an ObjectId; special sentinel ids ('TEMP','OPEN_SHIFT') are written by the schedule form.",
+    "Emergency clock-out mutates the schedule document before writing action history; because history raises, the endpoint returns 500 despite the state change — wrap history write in try/except so the API contract stays consistent.",
+    "DispatchSchedulePage.js is 2070 lines — should be split into table/dialogs/filters modules."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only run; 1 critical 500 found incidentally)", "frontend": "100% (3/3 change-request features)"},
+  "seed_data_creation": "Created vendor 'TEST_Vendor QA' (code TESTV1) because no vendors existed and Vendor is required in Add Schedule. Created schedule 6a95f2d64950e10281c1d7f8 (ShotClient/ShotPost, Temporary Officer, remarks 'TEST_UI remark', site_instruction 'TEST_UI Site Instruction Alpha', token ea223c6c2bb443d38e66f1b0a827613f) and put it into emergency-clock-out state with remark 'TEST_UI Officer felt unsafe - left post'.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@example.com / admin123 (from /app/memory/test_credentials.md); note login returns session cookie, no bearer token",
+  "context_for_next_testing_agent": "Verified: sf-site-instruction textarea present below Remarks in New Dispatch Schedule dialog and saves (toast 'Schedule created'); /shift/{token} renders data-testid='site-instruction' for both seeded token 61cfc24501c14fbe99f15fb4ca691a36 and new token ea223c6c2bb443d38e66f1b0a827613f (desktop + mobile 390px, not stuck on Loading); Remarks column shows data-testid='sched-emergency-remark-<id>' with red styling (color rgb(153,27,27) on bg rgb(254,226,226)) text 'Emergency Clock Out: <remark>'. Tips: wait on [data-testid=\"shift-tracking-page\"] (1s ticker, no networkidle); after login dismiss [data-testid=\"portal-select-overlay\"] via portal-select-dispatch; in Add Schedule pick sf-post FIRST then sf-client/sf-vendor/sf-officer; SearchableSelect options are [data-testid=\"<testid>-option-<id>\"] with search input <testid>-search.",
+  "rca_of_the_issue": "Officer tracking 500s: dispatch schedule form allows officer_id sentinels 'TEMP'/'OPEN_SHIFT'; shift_tracking._action_history unconditionally wraps sched['officer_id'] in ObjectId(), raising InvalidId -> unhandled 500 after the schedule doc was already mutated. Repro: create schedule with Security Officer = 'Temporary Officer', then POST /api/shift-track/{token}/clock-in with in-geofence coords -> 500."
+}

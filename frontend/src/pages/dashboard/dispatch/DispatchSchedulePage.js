@@ -9,7 +9,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { toast } from '@/components/ui/sonner';
-import { Plus, Filter, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, MoreVertical, Columns as ColumnsIcon, Download, GripVertical, Eye, EyeOff, Upload, Pencil, Check, Link2, ExternalLink } from 'lucide-react';
+import { Plus, Filter, X, ChevronLeft, ChevronRight, ChevronDown, ChevronUp, MoreVertical, Columns as ColumnsIcon, Download, GripVertical, Eye, EyeOff, Upload, Pencil, Check, Link2, ExternalLink, AlertTriangle } from 'lucide-react';
 import useAuthStore from '@/stores/authStore';
 import { hasPermission } from '@/lib/permissions';
 import { CONFIRM_BADGE } from './_shared';
@@ -602,6 +602,7 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
       billing_rate: row.billing_rate ?? null,
       work_order_number: row.work_order_number ?? null,
       remarks: row.remarks ?? '',
+      site_instruction: row.site_instruction ?? '',
     });
     setDialogOpen(true);
   };
@@ -1040,6 +1041,12 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
                     const editing = remarkEditId === r.id;
                     return (
                       <div className="max-w-[240px]" data-testid={`sched-remarks-${r.id}`}>
+                        {r.emergency_clock_out?.remark && (
+                          <div className="mb-1 flex items-start gap-1 rounded bg-red-100 dark:bg-red-950/60 border border-red-300 dark:border-red-800 px-1.5 py-1 text-xs text-red-800 dark:text-red-200" data-testid={`sched-emergency-remark-${r.id}`}>
+                            <AlertTriangle className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+                            <span className="whitespace-pre-wrap break-words"><b>Emergency Clock Out:</b> {r.emergency_clock_out.remark}</span>
+                          </div>
+                        )}
                         {list.length > 0 ? (
                           <div className="flex flex-col gap-1 mb-1">
                             {list.map((rm, i) => {
@@ -1492,6 +1499,7 @@ const DispatchSchedulePage = ({ todayOnly = false }) => {
             </>}
             <div className="col-span-2"><Label>Work Order Number</Label><Input value={form.work_order_number ?? ''} onChange={(e) => setForm({ ...form, work_order_number: e.target.value })} data-testid="sf-wo" placeholder="Optional — many shifts can share one W.O. #" /></div>
             <div className="col-span-2"><Label>Remarks</Label><Textarea value={form.remarks ?? ''} onChange={(e) => setForm({ ...form, remarks: e.target.value })} data-testid="sf-remarks" /></div>
+            <div className="col-span-2"><Label>Site Instruction</Label><Textarea value={form.site_instruction ?? ''} onChange={(e) => setForm({ ...form, site_instruction: e.target.value })} data-testid="sf-site-instruction" placeholder="Instructions shown to the officer on their shift tracking page" /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setDialogOpen(false)}>Cancel</Button>
