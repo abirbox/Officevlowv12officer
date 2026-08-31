@@ -4,6 +4,8 @@ import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
 import { motion } from 'framer-motion';
 import { useScopedApi } from '@/lib/scopedApi';
+import { useAppSettings } from '@/contexts/AppSettingsContext';
+import { getMapTile } from '@/lib/mapTiles';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -81,6 +83,8 @@ const relAgo = (iso) => {
 
 const LiveTrackingPage = () => {
   const api = useScopedApi();
+  const { settings } = useAppSettings();
+  const tile = getMapTile(settings);
   const [officers, setOfficers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedId, setSelectedId] = useState(null);
@@ -226,8 +230,11 @@ const LiveTrackingPage = () => {
             <div style={{ height: '620px', width: '100%' }} data-testid="live-tracking-map">
               <MapContainer center={defaultCenter} zoom={12} style={{ height: '100%', width: '100%' }}>
                 <TileLayer
-                  attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-                  url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                  key={tile.provider}
+                  attribution={tile.attribution}
+                  url={tile.url}
+                  subdomains={tile.subdomains}
+                  maxZoom={tile.maxZoom}
                 />
                 <MapFlyer target={flyTarget} />
                 {withPosition.map((o) => {

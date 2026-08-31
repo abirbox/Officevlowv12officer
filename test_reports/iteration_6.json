@@ -1,0 +1,24 @@
+{
+  "summary": "Frontend-only test of the new Map Settings feature (Settings > Maps tab) on the preview URL as admin@example.com. Verified: provider dropdown, conditional Google API key field, empty-key validation, save + persistence across reload, and live tile-source switching on all three maps (Post Site LocationMapPicker, Live Tracking, public officer /shift mini map) for both Google and OSM. All checks passed; setting left on OpenStreetMap.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "MapSettingsTab: initial GET /settings failure is silently swallowed (.catch(() => {})) — the tab then shows default 'osm' even when the saved provider is Google, which can mislead an admin into overwriting real settings. Add an error toast / retry state.",
+    "Google Maps API key is returned in plain text by GET /settings and rendered in a type='text' input; consider masking (or returning a masked value) since the key is billable and visible to anyone with settings access.",
+    "Saving with provider='osm' keeps the previously saved Google key in the DB (field is only hidden). Acceptable, but not obvious to the user — a hint that the key is retained would help."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (per request)", "frontend": "100% (12/12 checks)"},
+  "seed_data_creation": "None. No records created (Add Post Site dialog opened only to inspect the map; not submitted).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@example.com / admin123; shift token maptest224fb457",
+  "context_for_next_testing_agent": "Verified results: (1) Settings > Maps card [map-settings-tab] renders; provider select [map-provider-select]; key field [google-key-field]/[google-maps-api-key-input] only rendered when provider=google (count 0 for OSM). (2) Google selected with empty key -> error toast 'Enter a Google Maps API key to use Google Maps.' and NO save. (3) Google + key -> 'Map settings saved'; after full reload provider and key persisted. (4) With provider=google+key, tiles from all 3 maps came from mt{0-3}.google.com/vt: PostSite, Live Tracking and /shift/maptest224fb457 mini map. (5) After switching to OpenStreetMap + Save, all 3 maps served {a,b,c}.tile.openstreetmap.org tiles and the settings tab reloaded as OpenStreetMap with the key field hidden. NOTE: at the start of this run the persisted provider was already 'google' with key AIzaSyDRbp9-4U3i5XjBqu-cTg5JBXJBfO4nEks (contrary to the request note saying it was OSM) — so the 'default OSM' fresh-install case was not observable in UI; it was left as google-key-in-db + provider=osm at the end. Use wait_until='domcontentloaded' + wait_for_selector for the /shift page (1s ticker prevents networkidle).",
+  "rca_of_the_issue": "N/A - no functional defects found."
+}

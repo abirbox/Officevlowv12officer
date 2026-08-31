@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { api } from '@/lib/axios';
 import { toast } from 'sonner';
+import ShiftMiniMap from '@/components/ShiftMiniMap';
 import {
   MapPin, Clock, LogIn, LogOut, AlertTriangle, CheckCircle2,
   XCircle, Loader2, ShieldAlert, Navigation, Hash, User, DollarSign, Timer,
@@ -227,6 +228,9 @@ export default function ShiftTrackingPage() {
             )}
           </div>
         </div>
+
+        {/* Provider-aware mini map: post geofence + live position */}
+        <ShiftMiniMap geo={geo} pos={pos} />
 
         {/* Shift details */}
         <div className="grid grid-cols-2 gap-3 mb-5">

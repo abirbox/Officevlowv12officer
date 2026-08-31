@@ -17,6 +17,9 @@ class AppSettings(BaseModel):
     login_welcome_subtitle: str = "Sign in to your OfficeFlow account"
     currency: str = "BDT"  # ISO-4217 code
     currency_symbol: str = "৳"
+    # Map provider: "osm" (OpenStreetMap, default) or "google" (Google Maps)
+    map_provider: str = "osm"
+    google_maps_api_key: Optional[str] = None
     timezone: str = "Asia/Dhaka"
     tz_offset_hours: float = 6.0
     not_found_lottie_enabled: bool = True
@@ -54,6 +57,8 @@ class AppSettingsUpdate(BaseModel):
     login_welcome_subtitle: Optional[str] = None
     currency: Optional[str] = None
     currency_symbol: Optional[str] = None
+    map_provider: Optional[str] = None
+    google_maps_api_key: Optional[str] = None
     timezone: Optional[str] = None
     tz_offset_hours: Optional[float] = None
     not_found_lottie_enabled: Optional[bool] = None

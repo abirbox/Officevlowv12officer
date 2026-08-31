@@ -7,11 +7,12 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Bell, Lock, User, Palette, Shield, Building2, MapPin, Droplet, Mail, Monitor } from 'lucide-react';
+import { Bell, Lock, User, Palette, Shield, Building2, MapPin, Droplet, Mail, Monitor, Map as MapIcon } from 'lucide-react';
 import useAuthStore from '@/stores/authStore';
 import { useTheme } from '@/contexts/ThemeContext';
 import { toast } from '@/components/ui/sonner';
 import BrandingTab from '@/components/settings/BrandingTab';
+import MapSettingsTab from '@/components/settings/MapSettingsTab';
 import OfficeLocationsTab from '@/components/settings/OfficeLocationsTab';
 import ColorsTab from '@/components/settings/ColorsTab';
 import EmailSettingsTab from '@/components/settings/EmailSettingsTab';
@@ -79,6 +80,12 @@ const SettingsPage = () => {
             <TabsTrigger value="email" data-testid="tab-email" className="shrink-0">
               <Mail className="w-4 h-4 mr-2" />
               Email
+            </TabsTrigger>
+          )}
+          {isAdmin && (
+            <TabsTrigger value="maps" data-testid="tab-maps" className="shrink-0">
+              <MapIcon className="w-4 h-4 mr-2" />
+              Maps
             </TabsTrigger>
           )}
           {isAdmin && (
@@ -246,6 +253,11 @@ const SettingsPage = () => {
         {isAdmin && (
           <TabsContent value="email">
             <EmailSettingsTab />
+          </TabsContent>
+        )}
+        {isAdmin && (
+          <TabsContent value="maps">
+            <MapSettingsTab />
           </TabsContent>
         )}
         {isAdmin && (

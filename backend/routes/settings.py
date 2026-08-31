@@ -54,6 +54,8 @@ async def get_public_settings(request: Request, db=Depends(get_db)):
         "login_welcome_subtitle": doc.get("login_welcome_subtitle", "Sign in to your account"),
         "currency": doc.get("currency", "BDT"),
         "currency_symbol": doc.get("currency_symbol", "৳"),
+        "map_provider": doc.get("map_provider", "osm"),
+        "google_maps_api_key": doc.get("google_maps_api_key"),
         "not_found_lottie_enabled": doc.get("not_found_lottie_enabled", True),
         "not_found_lottie_url": doc.get("not_found_lottie_url"),
         # Client portal login

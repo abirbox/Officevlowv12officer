@@ -4,6 +4,8 @@ import 'leaflet/dist/leaflet.css';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Search, Loader2, MapPin } from 'lucide-react';
+import { useAppSettings } from '@/contexts/AppSettingsContext';
+import { getMapTile } from '@/lib/mapTiles';
 
 // Fix Leaflet's default marker icon paths (webpack breaks the relative URLs).
 delete L.Icon.Default.prototype._getIconUrl;
@@ -23,6 +25,9 @@ const num = (v) => (v === '' || v == null || Number.isNaN(Number(v)) ? null : Nu
  *  - Reacts to manual lat/lng edits by moving the preview pin.
  */
 export default function LocationMapPicker({ address, lat, lng, radius, onChange }) {
+  const { settings } = useAppSettings();
+  const tileRef = useRef(getMapTile(settings));
+  tileRef.current = getMapTile(settings);
   const mapEl = useRef(null);
   const mapRef = useRef(null);
   const markerRef = useRef(null);
@@ -60,9 +65,11 @@ export default function LocationMapPicker({ address, lat, lng, radius, onChange 
     if (mapRef.current || !mapEl.current) return;
     const start = num(lat) != null && num(lng) != null ? [num(lat), num(lng)] : DEFAULT_CENTER;
     const map = L.map(mapEl.current, { scrollWheelZoom: true }).setView(start, num(lat) != null ? 15 : 11);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '&copy; OpenStreetMap contributors',
-      maxZoom: 19,
+    const t = tileRef.current;
+    L.tileLayer(t.url, {
+      attribution: t.attribution,
+      subdomains: t.subdomains,
+      maxZoom: t.maxZoom,
     }).addTo(map);
     map.on('click', (e) => emit(e.latlng.lat, e.latlng.lng));
     mapRef.current = map;

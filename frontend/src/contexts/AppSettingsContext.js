@@ -22,6 +22,8 @@ const DEFAULTS = {
   login_welcome_subtitle: 'Sign in to your OfficeFlow account',
   currency: 'BDT',
   currency_symbol: '৳',
+  map_provider: 'osm',
+  google_maps_api_key: null,
   timezone: 'Asia/Dhaka',
   tz_offset_hours: 6.0,
   not_found_lottie_enabled: true,
