@@ -36,3 +36,25 @@ class ConnectionManager:
 
 
 manager = ConnectionManager()
+
+
+class ShiftPresence:
+    """Reference-counted set of officer shift tokens with an active real-time
+    (WebSocket) connection. Drives instant online/offline on the live map."""
+    def __init__(self):
+        self._online: Dict[str, int] = {}
+
+    def add(self, token: str):
+        self._online[token] = self._online.get(token, 0) + 1
+
+    def remove(self, token: str):
+        if token in self._online:
+            self._online[token] -= 1
+            if self._online[token] <= 0:
+                self._online.pop(token, None)
+
+    def is_online(self, token: str) -> bool:
+        return token in self._online
+
+
+shift_presence = ShiftPresence()

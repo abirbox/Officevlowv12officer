@@ -115,21 +115,51 @@ export default function ShiftTrackingPage() {
 
   const ping = () => ({ latitude: pos?.lat ?? null, longitude: pos?.lng ?? null });
 
-  // Heartbeat: while clocked in, ping the server every 45s so dispatch knows
-  // the officer is online and the live map pin follows them.
+  // Real-time presence: while clocked in, hold a WebSocket open so the Live
+  // Tracking map shows the officer online instantly and flips them offline the
+  // moment the connection drops (more reliable than a timed HTTP heartbeat,
+  // which mobile browsers suspend when the tab is backgrounded).
   const posRef = useRef(null);
   useEffect(() => { posRef.current = pos; }, [pos]);
   useEffect(() => {
     if (!data || data.shift_status !== 'Clocked In') return;
-    const beat = () => {
-      const p = posRef.current;
-      api.post(`/shift-track/${token}/ping`, {
-        latitude: p?.lat ?? null, longitude: p?.lng ?? null,
-      }).catch(() => {});
+    let ws = null;
+    let hb = null;
+    let closedByUs = false;
+    let reconnect = null;
+
+    const connect = () => {
+      try {
+        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        ws = new WebSocket(`${proto}//${window.location.host}/api/ws/shift/${token}`);
+        ws.onopen = () => {
+          const send = () => {
+            const p = posRef.current;
+            try { ws.send(JSON.stringify({ latitude: p?.lat ?? null, longitude: p?.lng ?? null })); } catch { /* noop */ }
+          };
+          send();
+          hb = setInterval(send, 20000);
+        };
+        ws.onclose = () => {
+          if (hb) clearInterval(hb);
+          if (!closedByUs) reconnect = setTimeout(connect, 5000);
+        };
+        ws.onerror = () => { try { ws.close(); } catch { /* noop */ } };
+      } catch { /* WS unavailable */ }
     };
-    beat();
-    const id = setInterval(beat, 45000);
-    return () => clearInterval(id);
+    connect();
+
+    return () => {
+      closedByUs = true;
+      if (hb) clearInterval(hb);
+      if (reconnect) clearTimeout(reconnect);
+      if (ws) {
+        try {
+          if (ws.readyState === WebSocket.CONNECTING) ws.onopen = () => ws.close();
+          else ws.close();
+        } catch { /* noop */ }
+      }
+    };
   }, [data?.shift_status, token]);
 
   if (loading) {

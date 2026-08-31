@@ -34,7 +34,7 @@ from utils.tz import dhaka_today, dhaka_today_iso, today_iso_in_tz
 SPECIAL_OFFICERS = {"TEMP", "OPEN_SHIFT"}
 UMA_TIME = "UMA"
 from utils.storage import to_public_url
-from utils.ws import manager
+from utils.ws import manager, shift_presence
 from utils.geo import haversine_m
 
 # An officer is considered "offline" if no heartbeat/location ping arrives
@@ -1463,14 +1463,11 @@ async def build_live_entry(db, d: dict) -> dict:
         radius = post.get("geofence_radius_m") or 150
         geofence_status = "inside" if dist_m <= float(radius) else "outside"
 
-    # Offline = no heartbeat/location ping within the threshold (only applies
-    # once an officer has actually pinged, so non-heartbeating shifts aren't
-    # falsely flagged).
-    is_offline = False
-    last_seen = d.get("last_seen_at")
-    if isinstance(last_seen, datetime):
-        ls = last_seen if last_seen.tzinfo else last_seen.replace(tzinfo=timezone.utc)
-        is_offline = (datetime.now(timezone.utc) - ls).total_seconds() > OFFLINE_THRESHOLD_SECONDS
+    # Offline = no live (WebSocket) presence connection from the officer's
+    # device. Flips instantly when they open/close the shift page or lose
+    # connectivity — no timed heartbeat involved.
+    token = d.get("tracking_token")
+    is_offline = (not shift_presence.is_online(token)) if token else True
 
     base = os.environ.get("FRONTEND_URL", "").rstrip("/")
     token = d.get("tracking_token")

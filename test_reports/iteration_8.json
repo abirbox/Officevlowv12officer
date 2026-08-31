@@ -1,0 +1,24 @@
+{
+  "summary": "Frontend-only verification of the real-time WebSocket presence fix on Dispatch > Live Tracking (two-page flow: admin dashboard tab + officer shift page). All 3 steps passed. STEP1: with no officer device connected, 'Realtime Officer' (schedule_id 6a960793ffe7ef22757db308) sidebar pill read 'Offline'. STEP2: opening https://.../shift/presencef510a224 in a separate browser context flipped the pill to 'On duty' in 0.51s with NO refresh of the admin tab (map popup [live-status-<sid>] also showed 'On duty'). STEP3: closing the officer page flipped the pill back to 'Offline' in 0.56s with NO refresh. Both transitions were far under the 30s safety poll, confirming the update is WebSocket-driven (header showed 'Live · real-time updates' with green pulse indicator).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Non-blocking: browser console logs 'WebSocket connection to wss://.../api/ws/dispatch failed: WebSocket is closed before the connection is established' on route changes/unmount (LiveTrackingPage cleanup closes the socket while it is still CONNECTING). Harmless but noisy; guard the close with readyState checks / close in ws.onopen when a cleanup flag is set.",
+    "LiveTrackingPage.js applyUpdate rebuilds the officers array with filter+push, which reorders the sidebar list on every dispatch_live_update (an updated officer jumps to the bottom). Consider preserving index order (map-in-place, insert if new) to avoid list jumpiness when many officers are live.",
+    "Reconnect backoff for /api/ws/dispatch is a fixed 8s with no cap/jitter and no visual re-sync fetch on reopen; a fetchLive() call in ws.onopen would avoid a stale window after reconnect."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (per request)", "frontend": "100% (3/3 presence transition checks + map popup check)"},
+  "seed_data_creation": "None created; used the seeded 'Realtime Officer' / token presencef510a224 shift.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@example.com / admin123 (super_admin); officer token presencef510a224",
+  "context_for_next_testing_agent": "Presence flow validated end-to-end in UI. Reproduce with: login -> portal-select-dispatch -> goto /dashboard/dispatch/live-tracking (wait [data-testid=live-tracking-page]) -> read [data-testid=live-officer-status-6a960793ffe7ef22757db308]; open officer page in a NEW browser context with wait_until='domcontentloaded' + wait_for_selector('[data-testid=shift-tracking-page]') (1s ticker blocks networkidle); poll the pill every 500ms. Note the sidebar list currently reorders on WS updates (Realtime Officer stayed last, but the entry is re-pushed). Two other seeded officers (ABir, Officer) remained 'Offline' throughout, as expected with no connected device.",
+  "rca_of_the_issue": "Original bug (officers always OFFLINE) is fixed: is_offline is now derived from the reference-counted shift_presence WebSocket registry and pushed to the dashboard via dispatch_live_update, so the UI reflects connect/disconnect within ~0.5s without depending on the 30s poll."
+}

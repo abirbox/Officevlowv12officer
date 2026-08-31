@@ -138,7 +138,7 @@ const LiveTrackingPage = () => {
         const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const ws = new WebSocket(`${proto}//${window.location.host}/api/ws/dispatch`);
         wsRef.current = ws;
-        ws.onopen = () => setLiveConnected(true);
+        ws.onopen = () => { setLiveConnected(true); fetchLive(true); };
         ws.onmessage = (event) => {
           try {
             const msg = JSON.parse(event.data);
@@ -157,7 +157,13 @@ const LiveTrackingPage = () => {
     return () => {
       closedByUs = true;
       if (reconnectRef.current) clearTimeout(reconnectRef.current);
-      if (wsRef.current) { try { wsRef.current.close(); } catch { /* noop */ } }
+      const ws = wsRef.current;
+      if (ws) {
+        try {
+          if (ws.readyState === WebSocket.CONNECTING) ws.onopen = () => ws.close();
+          else ws.close();
+        } catch { /* noop */ }
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);

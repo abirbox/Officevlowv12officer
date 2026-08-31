@@ -306,6 +306,60 @@ async def ws_dispatch(websocket: WebSocket):
         manager.disconnect(user_id, websocket)
 
 
+@api_router.websocket("/ws/shift/{token}")
+async def ws_shift_presence(websocket: WebSocket, token: str):
+    """Public real-time presence + location channel for the officer's shift
+    page. While this socket is open the officer is 'online' on the live map;
+    the moment it closes they flip to offline instantly."""
+    import json as _json
+    from datetime import datetime as _dt, timezone as _tz
+    from utils.ws import shift_presence
+    from routes.dispatch import broadcast_live_update
+
+    await websocket.accept()
+    db = app.state.db
+    sched = await db.dispatch_schedules.find_one({"tracking_token": token})
+    if not sched:
+        await websocket.close(code=1008)
+        return
+
+    shift_presence.add(token)
+    now = _dt.now(_tz.utc)
+    await db.dispatch_schedules.update_one(
+        {"tracking_token": token},
+        {"$set": {"last_seen_at": now, "tracking_alerts.offline_sent": False}})
+    fresh = await db.dispatch_schedules.find_one({"tracking_token": token})
+    await broadcast_live_update(db, fresh)  # -> online on the dashboard now
+
+    try:
+        while True:
+            raw = await websocket.receive_text()
+            now = _dt.now(_tz.utc)
+            set_doc = {"last_seen_at": now, "tracking_alerts.offline_sent": False}
+            try:
+                data = _json.loads(raw)
+                lat, lng = data.get("latitude"), data.get("longitude")
+                if lat is not None and lng is not None:
+                    set_doc["last_ping_location"] = {"lat": lat, "lng": lng}
+            except Exception:
+                pass
+            await db.dispatch_schedules.update_one({"tracking_token": token}, {"$set": set_doc})
+            fresh = await db.dispatch_schedules.find_one({"tracking_token": token})
+            await broadcast_live_update(db, fresh)
+    except WebSocketDisconnect:
+        pass
+    except Exception:
+        pass
+    finally:
+        shift_presence.remove(token)
+        try:
+            fresh = await db.dispatch_schedules.find_one({"tracking_token": token})
+            if fresh:
+                await broadcast_live_update(db, fresh)  # -> offline instantly
+        except Exception:
+            pass
+
+
 app.include_router(api_router)
 
 app.add_middleware(
