@@ -1,0 +1,157 @@
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { ThemeProvider } from "@/contexts/ThemeContext";
+import { AppSettingsProvider } from "@/contexts/AppSettingsContext";
+import { TimezoneProvider } from "@/contexts/TimezoneContext";
+import { SiteThemeProvider } from "@/contexts/SiteThemeContext";
+import { PresenceProvider } from "@/contexts/PresenceContext";
+import { Toaster } from "@/components/ui/sonner";
+import ProtectedRoute from "@/components/ProtectedRoute";
+import GuestRoute from "@/components/GuestRoute";
+import DashboardLayout from "@/layouts/DashboardLayout";
+import Login from "@/pages/auth/Login";
+import ClientPortalLogin from "@/pages/auth/ClientPortalLogin";
+import Register from "@/pages/auth/Register";
+import ForgotPassword from "@/pages/auth/ForgotPassword";
+import ResetPassword from "@/pages/auth/ResetPassword";
+import NotFoundPage from "@/pages/NotFoundPage";
+import ShiftTrackingPage from "@/pages/ShiftTrackingPage";
+import DashboardHome from "@/pages/dashboard/DashboardHome";
+import CompaniesPage from "@/pages/dashboard/CompaniesPage";  // legacy — hidden from nav
+import EmployeesPage from "@/pages/dashboard/EmployeesPage";
+import EmployeeDetailPage from "@/pages/dashboard/EmployeeDetailPage";
+import AttendancePage from "@/pages/dashboard/AttendancePage";
+import GPSTrackingPage from "@/pages/dashboard/GPSTrackingPage";
+import LiveMapPage from "@/pages/dashboard/LiveMapPage";
+import TasksPage from "@/pages/dashboard/TasksPage";
+import ShiftsPage from "@/pages/dashboard/ShiftsPage";
+import OvertimePage from "@/pages/dashboard/OvertimePage";
+import ReportsPage from "@/pages/dashboard/ReportsPage";
+import CalendarPage from "@/pages/dashboard/CalendarPage";
+import LeavesPage from "@/pages/dashboard/LeavesPage";
+import PayrollPage from "@/pages/dashboard/PayrollPage";
+import SettingsPage from "@/pages/dashboard/SettingsPage";
+import DispatchDashboardPage from "@/pages/dashboard/dispatch/DispatchDashboardPage";
+import DispatchSchedulePage from "@/pages/dashboard/dispatch/DispatchSchedulePage";
+import LiveTrackingPage from "@/pages/dashboard/dispatch/LiveTrackingPage";
+import DispatchCalendarPage from "@/pages/dashboard/dispatch/DispatchCalendarPage";
+import DispatchReportsPage from "@/pages/dashboard/dispatch/DispatchReportsPage";
+import DispatchAuditPage from "@/pages/dashboard/dispatch/DispatchAuditPage";
+import DispatchInvoicesPage from "@/pages/dashboard/dispatch/DispatchInvoicesPage";
+import PaymentSOPage from "@/pages/dashboard/dispatch/PaymentSOPage";
+import { ClientsPage, VendorsPage, OfficersPage, PostSitesPage } from "@/pages/dashboard/dispatch/EntityPages";
+import ClientProtectedRoute from "@/components/ClientProtectedRoute";
+import ClientPortalLayout from "@/layouts/ClientPortalLayout";
+import ClientDashboard from "@/pages/client/ClientDashboard";
+import ClientVendors from "@/pages/client/ClientVendors";
+import ClientProfile from "@/pages/client/ClientProfile";
+import "@/App.css";
+
+function App() {
+  return (
+    <ThemeProvider>
+      <AppSettingsProvider>
+        <TimezoneProvider>
+        <SiteThemeProvider>
+        <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<Navigate to="/dashboard" replace />} />
+          <Route
+            path="/login"
+            element={
+              <GuestRoute>
+                <Login />
+              </GuestRoute>
+            }
+          />
+          <Route
+            path="/client-portal/login"
+            element={
+              <GuestRoute>
+                <ClientPortalLogin />
+              </GuestRoute>
+            }
+          />
+          {/* Legacy paths — keep them alive so existing links / bookmarks
+              still land in the right place. */}
+          <Route path="/client" element={<Navigate to="/client-portal/dashboard" replace />} />
+          <Route path="/register" element={<Navigate to="/login" replace />} />
+          <Route path="/forgot-password" element={<ForgotPassword />} />
+          <Route path="/reset-password" element={<ResetPassword />} />
+
+          {/* Public, token-guarded shift tracking page for Security Officers */}
+          <Route path="/shift/:token" element={<ShiftTrackingPage />} />
+          
+          <Route
+            path="/dashboard"
+            element={
+              <ProtectedRoute>
+                <PresenceProvider>
+                  <DashboardLayout />
+                </PresenceProvider>
+              </ProtectedRoute>
+            }
+          >
+            <Route index element={<DashboardHome />} />
+            <Route path="employees" element={<EmployeesPage />} />
+            <Route path="employees/:id" element={<EmployeeDetailPage />} />
+            <Route path="companies" element={<CompaniesPage />} />
+            <Route path="attendance" element={<AttendancePage />} />
+            <Route path="gps" element={<GPSTrackingPage />} />
+            <Route path="live-map" element={<LiveMapPage />} />
+            <Route path="tasks" element={<TasksPage />} />
+            <Route path="shifts" element={<ShiftsPage />} />
+            <Route path="overtime" element={<OvertimePage />} />
+            <Route path="reports" element={<ReportsPage />} />
+            <Route path="calendar" element={<CalendarPage />} />
+            <Route path="leaves" element={<LeavesPage />} />
+            <Route path="payroll" element={<PayrollPage />} />
+            <Route path="settings" element={<SettingsPage />} />
+            <Route path="dispatch" element={<DispatchDashboardPage />} />
+            <Route path="dispatch/schedules" element={<DispatchSchedulePage />} />
+            <Route path="dispatch/live-tracking" element={<LiveTrackingPage />} />
+            <Route path="dispatch/today" element={<DispatchSchedulePage todayOnly />} />
+            <Route path="dispatch/calendar" element={<DispatchCalendarPage />} />
+            <Route path="dispatch/reports" element={<DispatchReportsPage />} />
+            <Route path="dispatch/invoices" element={<DispatchInvoicesPage />} />
+            <Route path="dispatch/payment-so" element={<PaymentSOPage />} />
+            <Route path="dispatch/audit" element={<DispatchAuditPage />} />
+            <Route path="dispatch/clients" element={<ClientsPage />} />
+            <Route path="dispatch/vendors" element={<VendorsPage />} />
+            <Route path="dispatch/officers" element={<OfficersPage />} />
+            <Route path="dispatch/post-sites" element={<PostSitesPage />} />
+          </Route>
+
+          <Route
+            path="/client-portal"
+            element={
+              <ClientProtectedRoute>
+                <ClientPortalLayout />
+              </ClientProtectedRoute>
+            }
+          >
+            <Route index element={<Navigate to="dashboard" replace />} />
+            <Route path="dashboard" element={<ClientDashboard />} />
+            <Route path="today" element={<DispatchSchedulePage todayOnly />} />
+            <Route path="schedules" element={<DispatchSchedulePage />} />
+            <Route path="calendar" element={<DispatchCalendarPage />} />
+            <Route path="officers" element={<OfficersPage />} />
+            <Route path="post-sites" element={<PostSitesPage />} />
+            <Route path="vendors" element={<ClientVendors />} />
+            <Route path="payments" element={<PaymentSOPage />} />
+            <Route path="wage-report" element={<DispatchReportsPage />} />
+            <Route path="invoices" element={<DispatchInvoicesPage />} />
+            <Route path="profile" element={<ClientProfile />} />
+          </Route>
+
+          <Route path="*" element={<NotFoundPage />} />
+        </Routes>
+        <Toaster />
+        </BrowserRouter>
+        </SiteThemeProvider>
+        </TimezoneProvider>
+      </AppSettingsProvider>
+    </ThemeProvider>
+  );
+}
+
+export default App;

@@ -1,0 +1,78 @@
+{
+  "summary": "Frontend-only E2E test of the timezone-aware (instant-based) schedule feature in OfficeFlow. Logged in as admin@example.com, switched the display timezone via the top-bar Timezone menu (Asia/Dhaka, America/Los_Angeles, Asia/Tokyo, UTC) and verified the Dispatch > Schedules table, the Dispatch > Calendar, and the create-shift flow. 6 of 7 requested scenarios PASS. One CRITICAL failure found: the Dispatch Calendar month grid places shifts on the WRONG day cell (and shows the wrong month label) whenever the display timezone differs from the browser timezone - the exact scenario the feature was built for.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {
+        "component": "DispatchCalendarPage (month grid + header label)",
+        "issue": "With display timezone = America/Los_Angeles (browser zone UTC), the month header reads 'May 2026' while the grid actually renders June 2026, and every day-cell's data-testid is one day behind the day number it displays. Result: the seeded shift (backend date 2026-06-01 in LA) is rendered in the cell that visually shows '2' instead of Jun 1, and the newly created Jun-10 LA shift is rendered in the cell that visually shows '11'. With Asia/Dhaka (positive offset vs UTC browser) the same page is correct (header 'June 2026', shift on cell showing '2' = 2026-06-02, and on '10'). This FAILS the requested check 'Calendar with timezone Los Angeles must show the shift on Jun 1, not Jun 2'.",
+        "selector": "[data-testid=\"cal-cell-2026-06-01\"], [data-testid=\"cal-cell-2026-06-10\"], [data-testid=\"dispatch-calendar-page\"]",
+        "priority": "HIGH"
+      },
+      {
+        "component": "DispatchSchedulePage table - Shift Status column",
+        "issue": "The status Select ('Not Started') is visually clipped/overlapped by the sticky right-hand MANAGE column, rendering as 'Not Start'. Reproduced at 1920x1080 in every timezone.",
+        "selector": "[data-testid^=\"status-select-\"]",
+        "priority": "LOW"
+      },
+      {
+        "component": "Router / 404 handling",
+        "issue": "Navigating to a non-existent dashboard route (e.g. /dashboard/dispatch/schedule - singular, an easy typo since the real route is /schedules) renders a completely blank white page with no 404 message or redirect.",
+        "selector": "body",
+        "priority": "LOW"
+      },
+      {
+        "component": "New Dispatch Schedule dialog",
+        "issue": "Date and Start/End Time fields use native browser <input type=date>/<input type=time> pickers rather than the shadcn Calendar/time components used elsewhere in the design system (locale-dependent display: shows 06/10/2026 and 09:00 AM while the table renders 24h / '10 Jun 2026').",
+        "selector": "[data-testid=\"sf-date\"], [data-testid=\"sf-start\"], [data-testid=\"sf-end\"]",
+        "priority": "LOW"
+      }
+    ],
+    "integration_issues": [
+      {
+        "flow": "Account-saved display timezone adoption on fresh login",
+        "issue": "FLAKY (1 of 2 fresh sessions): after logging in on a browser with no localStorage override, the app rendered everything in the browser zone (UTC) even though GET /api/auth/me returned timezone 'Asia/Dhaka'; a later session with the same setup correctly adopted the account zone (GMT+9). Likely RCA: TimezoneContext mutates a module-level ACTIVE_TZ and only triggers the corrective window.location.reload() when sessionStorage 'tz_synced' is unset, so any session where that key already exists (or where the effect runs after the first data fetches) keeps sending the wrong X-Timezone header for the whole page load. PUT /auth/me/timezone itself persists correctly (verified auth/me returned Asia/Tokyo after switching).",
+        "affected_selectors": ["[data-testid=\"timezone-menu-label\"]", "[data-testid^=\"sched-date-\"]"]
+      }
+    ],
+    "design_issues": [
+      {
+        "screen": "Dispatch Schedule table",
+        "issues": [
+          "Shift-status badge truncated behind the sticky MANAGE column",
+          "'DUTY HOURS' header wraps awkwardly to 'DUTY HOUR / S' in the narrow column"
+        ]
+      },
+      {
+        "screen": "Dispatch Calendar (month view)",
+        "issues": ["Month title label disagrees with the rendered grid when display timezone != browser timezone (shows 'May 2026' over a June grid)"]
+      }
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "FIX (HIGH): /app/frontend/src/pages/dashboard/dispatch/DispatchCalendarPage.js - iso(d) uses dhakaDateIso(d) which formats a browser-local Date in the ACTIVE display timezone, shifting the key by a day whenever the display zone is behind the browser zone. Build the ISO key from the Date's own local components instead (`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}`) for: the month/week/day grid cell keys (line ~514), the range.from/range.to sent as date_from/date_to (lines ~74-91, which also currently query 2026-05-31..2026-06-29 instead of the full month), and `today` (todayIso, line ~499).",
+    "FIX (HIGH): DispatchCalendarPage line ~190 - `label = formatMonth(cursor)` converts the browser-local cursor into the display zone and reports the previous month. Format the cursor's local month directly.",
+    "FIX (MEDIUM): TimezoneContext.js - make the account-timezone adoption deterministic before the first API calls (e.g. resolve the zone during auth bootstrap instead of a post-mount effect + one-shot sessionStorage-guarded reload) so X-Timezone is always correct on the first render.",
+    "FIX (LOW): give the shift-status column enough width / z-index so it is not covered by the sticky MANAGE column.",
+    "FIX (LOW): add a 404 route for unknown /dashboard/* paths instead of a blank page.",
+    "NOTE: add explicit data-testid attributes to the start/end time cells (currently only the wrapper `cell-start_time-<id>` exists) to make timezone regressions easier to assert."
+  ],
+  "critical_code_review_comments": [
+    "datetime.js formats Date objects (whose components are browser-local) in ACTIVE_TZ. This is correct for real instants (ISO strings from the API) but WRONG for locally constructed 'calendar' Dates such as the calendar cursor/grid cells - that is the root cause of the calendar off-by-one-day bug. Consider separating 'instant formatters' from 'local calendar helpers' and never passing a locally-built Date through dhakaDateIso/formatMonth.",
+    "DispatchCalendarPage.js is 818 lines; the month/week/day grids should be split into separate components.",
+    "TimezoneContext.setPreference() fires api.put('/auth/me/timezone') and then calls window.location.reload() synchronously; the in-flight request can be aborted by the navigation. It happened to persist in testing, but the write should be awaited (or sent via keepalive) before reloading.",
+    "TimezoneMenu options are hardcoded in the context; the auto-detected zone is not shown as a selectable/checked entry when it is outside TIMEZONE_OPTIONS."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (frontend-only request)", "frontend": "86% (6/7 scenarios pass; calendar conversion fails)"},
+  "seed_data_creation": "Created one dispatch schedule via the UI: Acme Corp / Guard Vendor / Main Gate (P100) / John Officer, date 2026-06-10, 09:00-17:00 entered while display timezone was America/Los_Angeles (stored instant = 2026-06-10T16:00Z). It is still present in the DB and is used by the cross-timezone assertions.",
+  "should_call_test_agent_after_fix": true,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@example.com / admin123 (super_admin) - works. NOTE: after login a 'Choose your workspace' modal (data-testid=portal-select-overlay) blocks all clicks; automation must click [data-testid=portal-select-dispatch] first. No client-portal credentials were available, so the client-portal schedule view was NOT tested.",
+  "context_for_next_testing_agent": "Verified PASS: (1) Schedules table conversion of the seeded shift - Asia/Dhaka 02 Jun 2026 08:00-16:00; America/Los_Angeles 01 Jun 2026 19:00-03:00; Asia/Tokyo 02 Jun 2026 11:00-19:00; UTC 02 Jun 2026 02:00-10:00. (2) Timezone menu switch + reload + localStorage 'officeflow_tz_pref' + PUT /auth/me/timezone persistence (auth/me reflected Asia/Tokyo). (3) Create shift from the LA view (2026-06-10 09:00-17:00) -> LA shows Wed 10 Jun 09:00-17:00, Asia/Dhaka shows Wed 10 Jun 22:00-06:00, Asia/Tokyo shows Thu 11 Jun 01:00-09:00 - fully instant-based, date shifts correctly. Verified FAIL: Dispatch Calendar month grid day placement + month label when display tz != browser tz (container browser tz is UTC). Real routes are /dashboard/dispatch/schedules and /dashboard/dispatch/calendar (NOT /schedule). Calendar defaults to Week view anchored on today (Aug 2026) - switch [data-testid=calendar-view-select] to Month then click [data-testid=cal-prev] twice to reach June 2026. Still untested: client portal schedule view (no credentials), week/day calendar views, Wage Report / Invoices / Excel export timezone handling, DST boundary dates.",
+  "rca_of_the_issue": "DispatchCalendarPage.js defines `iso(d) => dhakaDateIso(d)`, and dhakaDateIso does `d.toLocaleDateString('en-CA', { timeZone: ACTIVE_TZ })`. The grid cell Dates and the cursor are created with browser-local constructors (`new Date(y, m, 1)`, `setDate()`), i.e. midnight in the BROWSER zone. Re-formatting that instant in a display zone that is behind the browser zone (UTC browser + America/Los_Angeles display = -7h) rolls it back to the previous calendar day. Consequently: (a) `data-testid={cal-cell-${iso(d)}}` and the byDate[r.date] lookup key are one day behind the `{d.getDate()}` number actually rendered, so a shift whose viewer-local date is 2026-06-01 lands in the cell that displays '2'; (b) `formatMonth(cursor)` prints 'May 2026' for a June cursor; (c) `range.from/to` sent as date_from/date_to are also shifted (2026-05-31 -> 2026-06-29 for June), so the last day of a month can be silently missing from the calendar. The schedules TABLE is unaffected because it renders the backend-localised plain strings r.date/r.start_time/r.end_time and never re-converts them. Fix: derive ISO keys from the Date's own local getFullYear/getMonth/getDate components (and format the month label from those components) rather than routing locally constructed Dates through the display-zone formatters."
+}

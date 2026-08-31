@@ -1,0 +1,44 @@
+{
+  "summary": "Tested the two new Dispatch features (Shift tracking URL on schedule rows, Live Tracking map page) plus the login regression. Backend: 5/5 pytest tests pass (auth-guard on /api/dispatch/live-tracking, response shape, schedules carry tracking_token/tracking_url, public /api/shift-track/{token}, and full create-schedule -> clock-in -> officer appears in live-tracking with position -> cleanup). Frontend: login renders immediately (no 'Loading...' hang), portal chooser -> Dispatch portal, 'Live Tracking' nav item present, Leaflet map renders with 1 marker + geofence circle for a seeded clocked-in officer, popup shows name/post pin/client/shift/clock-in/check-ins, On Duty panel card (live-officer-<id>) present, refresh button works, empty state 'No officers are clocked in right now' shown when nobody is clocked in. Schedule table shows copy-tracking-<id>/open-tracking-<id> on all 3 rows; copy writes https://<origin>/shift/<token> to clipboard with success toast; open launches /shift/<token> in a new tab. No blocking issues found.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "GET /api/dispatch/live-tracking", "issue": "Sequential per-schedule lookups (officer/post/client find_one inside a loop over up to 2000 docs) will be slow at scale; consider $lookup or batched fetch + caching, especially with the 10s frontend auto-refresh."},
+      {"endpoint": "POST /api/shift-track/{token}/clock-out", "issue": "Returned 400 when clock-out window was not yet open for a shift that was legitimately Clocked In (clock-out only allowed near shift end). Expected product behaviour, but noted since it leaves shifts stuck 'Clocked In' if the officer never returns; emergency-clock-out is the only escape."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Dispatch Schedule table - Manage column", "issues": ["The first (status) pill button in the Manage column is horizontally clipped now that two extra icon buttons were added - only a single character is visible. Widen the Manage column or move the tracking icons into the existing kebab menu."]},
+      {"screen": "Dispatch portal (all pages)", "issues": ["Console warning: WebSocket connection to wss://<host>/api/ws/dispatch fails ('closed before the connection is established') on every page; app falls back to 10s polling so no functional impact, but the noisy repeated failure should be handled/silenced."]}
+    ]
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_iter31_live_tracking.py",
+    "/app/backend/tests/seed_iter31_live.py",
+    "/app/test_reports/pytest/iter31_results.xml"
+  ],
+  "action_items": [
+    "Fix clipped status button in the Dispatch Schedule Manage column (widen column or regroup actions).",
+    "Optional: optimise /api/dispatch/live-tracking N+1 lookups before larger data volumes.",
+    "Optional: suppress/handle the failing /api/ws/dispatch WebSocket connection noise."
+  ],
+  "critical_code_review_comments": [
+    "dispatch.py live_tracking does one find_one per schedule for officer/post/client (N+1) and scans all Clocked In docs with limit 2000 - batch these with $in queries.",
+    "_doc_out builds tracking_url from FRONTEND_URL env (correctly set); frontend also falls back to window.location.origin - good defensive default.",
+    "/app/backend/routes/dispatch.py is 3366 lines - well over the 700-line guideline; split into sub-routers (schedules, invoices, tracking, masters)."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_iter31_live_tracking.py",
+    "/app/backend/tests/seed_iter31_live.py"
+  ],
+  "success_rate": {"backend": "100%", "frontend": "100%"},
+  "seed_data_creation": "Created a temporary schedule for today (Aug 31 2026) cloned from existing client/vendor/officer/post-site ids, clocked the officer in via the public shift-track API for the Live Tracking UI check, then clocked out/deleted it. No residual test data (schedule count back to original 2 + 1 pre-existing; verified empty live-tracking state afterwards).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@example.com / admin123 (super_admin). NOTE: /api/auth/login is cookie-based (httpOnly), it does NOT return a bearer token - use requests.Session cookies for API tests.",
+  "context_for_next_testing_agent": "Auth is cookie-based; login then reuse the session (no Authorization header). Server date is Aug 31 2026 (company tz Asia/Dhaka = UTC+6); shift links show 'expired' for old dates and clock-in enforces a 300m geofence around the post site (Birol Bazar 25.630175, 88.552053), so clock-in payload must be {latitude, longitude} at the geofence centre and the schedule must be dated 'today' with a start_time slightly in the past (Dhaka local). Use /app/backend/tests/seed_iter31_live.py seed|clean to put an officer on the Live Tracking map for UI tests. Reusable regression suite: /app/backend/tests/test_iter31_live_tracking.py.",
+  "rca_of_the_issue": "No product defect reproduced. Two initial test failures were test-side: (1) login returns no bearer token (cookie session) and (2) clock-in body uses latitude/longitude (not lat/lng) and requires a same-day schedule inside the 300m geofence. Both fixed in the test file."
+}

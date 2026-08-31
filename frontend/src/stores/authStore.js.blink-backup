@@ -1,0 +1,116 @@
+import { create } from 'zustand';
+import { api, formatApiErrorDetail } from '@/lib/axios';
+
+const useAuthStore = create((set) => ({
+  user: null,
+  isLoading: true,
+  isAuthenticated: false,
+  authChecked: false,
+
+  checkAuth: async () => {
+    try {
+      const { data } = await api.get('/auth/me');
+
+      set({
+        user: data,
+        isAuthenticated: true,
+        isLoading: false,
+        authChecked: true,
+      });
+
+      return data;
+    } catch (error) {
+      set({
+        user: null,
+        isAuthenticated: false,
+        isLoading: false,
+        authChecked: true,
+      });
+
+      return null;
+    }
+  },
+
+  login: async (email, password) => {
+    try {
+      const { data } = await api.post('/auth/login', { email, password });
+
+      set({
+        user: data,
+        isAuthenticated: true,
+        isLoading: false,
+        authChecked: true,
+      });
+
+      return { success: true, user: data };
+    } catch (error) {
+      const message =
+        formatApiErrorDetail(error.response?.data?.detail) || error.message;
+
+      return { success: false, error: message };
+    }
+  },
+
+  register: async (userData) => {
+    try {
+      const { data } = await api.post('/auth/register', userData);
+
+      set({
+        user: data,
+        isAuthenticated: true,
+        isLoading: false,
+        authChecked: true,
+      });
+
+      return { success: true };
+    } catch (error) {
+      const message =
+        formatApiErrorDetail(error.response?.data?.detail) || error.message;
+
+      return { success: false, error: message };
+    }
+  },
+
+  logout: async () => {
+    try {
+      await api.post('/auth/logout');
+    } catch (error) {
+      // Logout locally even if the API request fails.
+    }
+
+    set({
+      user: null,
+      isAuthenticated: false,
+      isLoading: false,
+      authChecked: true,
+    });
+
+    return { success: true };
+  },
+
+  forgotPassword: async (email) => {
+    try {
+      await api.post('/auth/forgot-password', { email });
+      return { success: true };
+    } catch (error) {
+      const message =
+        formatApiErrorDetail(error.response?.data?.detail) || error.message;
+
+      return { success: false, error: message };
+    }
+  },
+
+  resetPassword: async (token, new_password) => {
+    try {
+      await api.post('/auth/reset-password', { token, new_password });
+      return { success: true };
+    } catch (error) {
+      const message =
+        formatApiErrorDetail(error.response?.data?.detail) || error.message;
+
+      return { success: false, error: message };
+    }
+  },
+}));
+
+export default useAuthStore;

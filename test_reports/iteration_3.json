@@ -1,0 +1,30 @@
+{
+  "summary": "Frontend-only smoke/e2e test of OfficeFlow preview (https://officeflow-v11.preview.emergentagent.com). Verified login page render, super_admin cookie login -> /dashboard, workspace chooser modal, dashboard render (no infinite loading), sidebar navigation (Employees, Work Shifts, Payroll), direct URL navigation to Employees/Dispatch Dashboard/Dispatch Schedules/Attendance/Clients/Settings, portal switch (Employee <-> Dispatch), auth persistence on hard refresh, logout and post-logout route guard. All requested flows PASSED. No application code changed.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Dispatch realtime updates", "issue": "WebSocket connection to wss://<preview>/api/ws/dispatch fails ('closed before the connection is established') on dashboard/dispatch pages. Non-blocking (pages poll/refresh every 10s and render fine), but live push updates are inactive on the preview ingress.", "affected_selectors": ["/api/ws/dispatch"]}
+    ],
+    "design_issues": [
+      {"screen": "Dispatch Schedule table", "issues": ["Header cell text wraps awkwardly ('DUTY HOUR S'); rightmost column 'SHIFT...' is clipped at 1920px width"]}
+    ]
+  },
+  "test_report_links": ["/app/test_reports/iteration_3.json"],
+  "action_items": [
+    "Optional: confirm whether /api/ws/dispatch WebSocket is expected to work through the preview ingress; if not supported, suppress the console warning / rely on polling fallback (currently already falls back gracefully).",
+    "Optional cosmetic: fix Dispatch Schedule table header wrapping/last-column clipping."
+  ],
+  "critical_code_review_comments": [
+    "Console shows two 401s from GET /api/auth/me on the unauthenticated /login load (expected by design, but noisy in logs).",
+    "Stale backup files present in /app/frontend/src/components (ProtectedRoute.js.backup-*, ClientProtectedRoute.js.blink-backup) - dead files, safe to remove."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (frontend-only request); login/me verified via curl 200", "frontend": "100% of requested flows (6/6)"},
+  "seed_data_creation": "None. DB left empty apart from auto-seeded super_admin (admin@example.com).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@example.com / admin123 (super_admin) - works",
+  "context_for_next_testing_agent": "Preview is functional end-to-end for admin auth + navigation. Useful testids: login-email-input, login-password-input, portal-select-employee/dispatch, nav-<page-name>, switch-portal-button, user-menu-trigger, logout-button, active-portal-label. Note the workspace-chooser modal (portal-select-overlay) appears right after login and must be dismissed before interacting with the dashboard. All list pages show empty states (no seed data). Client Portal (/client-portal/login) not tested.",
+  "rca_of_the_issue": "N/A - no failures. Earlier test-script failures were selector issues (get_by_role('link') / 'header button') resolved by using data-testid selectors."
+}
