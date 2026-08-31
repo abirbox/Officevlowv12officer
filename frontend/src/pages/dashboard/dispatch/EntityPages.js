@@ -126,11 +126,12 @@ export const PostSitesPage = () => (
           { value: 'Unarmed', label: 'Unarmed' }
         ]
       },
-      { key: 'location', label: 'Address' },
+      { key: 'location', label: 'Address', placeholder: 'Type an address — the map will search & drop a pin' },
       { key: 'city', label: 'City' },
       { key: 'latitude', label: 'Geofence Latitude', type: 'number', step: 'any', placeholder: 'e.g. 23.7806' },
       { key: 'longitude', label: 'Geofence Longitude', type: 'number', step: 'any', placeholder: 'e.g. 90.2794' },
       { key: 'geofence_radius_m', label: 'Geofence Radius (meters)', type: 'number', placeholder: '150' },
+      { key: 'geo_map', type: 'map', label: 'Location Map (search address, drag the pin, or type coordinates)', addressKey: 'location', latKey: 'latitude', lngKey: 'longitude', radiusKey: 'geofence_radius_m' },
       { key: 'notes', label: 'Note', type: 'textarea' },
     ]}
   />

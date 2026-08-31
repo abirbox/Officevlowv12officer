@@ -1,0 +1,30 @@
+{
+  "summary": "Frontend-only UI test of the new LocationMapPicker on the Add/Edit Post Site dialog (/dashboard/dispatch/post-sites). Verified: always-visible Leaflet map with OSM tiles in the dialog; debounced Nominatim address geocode auto-fills lat/lng ('Eiffel Tower, Paris' -> 48.85826 / 2.294501, marker dropped, 'Pinned: 48.85826, 2.29450' label); manual lat/lng typing (40.6892 / -74.0445) recenters the marker (verified marker inside map + label update + screenshot at Liberty Island); click-on-map sets coords; pin drag updates coords; 'Address not found' amber message (data-testid='map-not-found') shown for a bogus address with fallback drag/manual coords working; Save created the post site (toast 'Post Site created', row visible in table) and DB verified latitude=40.6892 / longitude=-74.0445 persisted exactly. One real defect found on the Edit path (auto re-geocode clobbers saved coordinates). No JS/Leaflet console errors.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [
+      {"flow": "Edit Post Site -> map picker re-geocode", "issue": "Opening the Edit dialog for a saved post site re-runs the debounced Nominatim geocode on the stored address and OVERWRITES the saved latitude/longitude in the form. Repro: saved site with address 'Eiffel Tower, Paris' but manually pinned coords 40.6892 / -74.0445 (DB confirmed). Clicking edit-<id> shows 48.85826 / 2.294501 in field-latitude/field-longitude and moves the pin to Paris; saving again would silently destroy the user's manually placed pin (directly contradicts requirement (c)/(d)). Fix: in LocationMapPicker, seed lastGeocoded.current with the initial address when lat/lng are already present on mount, so the auto-geocode only fires for address edits.", "affected_selectors": ["[data-testid=\"edit-<id>\"]", "[data-testid=\"field-latitude\"]", "[data-testid=\"field-longitude\"]", "[data-testid=\"location-map\"]"]}
+    ],
+    "design_issues": [
+      {"screen": "Add/Edit Post Site dialog", "issues": ["Latitude/Longitude field labels read 'Geofence Latitude/Longitude' while the request/help text calls them Latitude/Longitude — minor wording inconsistency only.", "Radix warning in console: 'Missing Description or aria-describedby for DialogContent' (a11y nit)."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [
+    "Prevent the initial auto-geocode from overwriting already-saved lat/lng when the Edit dialog opens (seed lastGeocoded with the initial address if coordinates exist)."
+  ],
+  "critical_code_review_comments": [
+    "LocationMapPicker: lastGeocoded.current starts as null, so every mount with a pre-filled address triggers a geocode that emits new lat/lng — data-loss risk on edit. Initialize it from the incoming address when lat/lng are provided.",
+    "geocode() has no AbortController; rapid address typing can let an older Nominatim response land last and overwrite newer coords.",
+    "Nominatim usage policy expects an identifying Referer/User-Agent and <=1 req/s; consider caching results and a longer debounce to avoid rate limiting in production."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "n/a (frontend-only run)", "frontend": "5/6 behaviors PASS (map always visible, address geocode, manual coords, click/drag pin, not-found fallback, save+persist) — Edit re-open pin-integrity FAILS"},
+  "seed_data_creation": "Created post site TESTPIN01 / 'TEST_QA Map Site' during the save test; deleted afterwards from dispatch_post_sites (cleanup done, list back to empty).",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": true,
+  "test_credentials": "admin@example.com / admin123 (from /app/memory/test_credentials.md); after login dismiss [data-testid=\"portal-select-overlay\"] via portal-select-dispatch",
+  "context_for_next_testing_agent": "Post Sites map picker: data-testid='location-map-picker' wraps 'map-search-address' button, optional 'map-not-found' warning and 'location-map' div. Nominatim returned 200 on both runs (no rate limit); auto geocode lands within ~3-4s of typing into field-location. Marker selector: '.leaflet-marker-icon'; tiles: '.leaflet-tile'. Verified persistence directly in Mongo collection 'dispatch_post_sites'. Test data was cleaned up.",
+  "rca_of_the_issue": "LocationMapPicker's auto-geocode effect only skips when the address equals lastGeocoded.current, which is null on first mount. In the Edit dialog the form already carries the saved address + coordinates, so after the 900ms debounce the component geocodes the address and emits fresh lat/lng, replacing the persisted (possibly hand-dragged) coordinates in the form state."
+}

@@ -12,6 +12,7 @@ import { Plus, Pencil, Trash2, Search, Image as ImageIcon } from 'lucide-react';
 import useAuthStore from '@/stores/authStore';
 import { hasPermission } from '@/lib/permissions';
 import { STATUS_BADGE } from './_shared';
+import LocationMapPicker from '@/components/LocationMapPicker';
 
 /**
  * Generic entity CRUD table used by Clients, Vendors, Officers, Post Sites.
@@ -91,6 +92,16 @@ const EntityCrudPage = ({ title, endpoint, permBase, fields, columns, statuses, 
   };
 
   const renderField = (f) => {
+    if (f.type === 'map')
+      return (
+        <LocationMapPicker
+          address={form[f.addressKey] || ''}
+          lat={form[f.latKey] ?? ''}
+          lng={form[f.lngKey] ?? ''}
+          radius={form[f.radiusKey]}
+          onChange={({ lat, lng }) => setForm((prev) => ({ ...prev, [f.latKey]: lat, [f.lngKey]: lng }))}
+        />
+      );
     if (f.type === 'logo')
       return (
         <div className="flex items-center gap-3">
@@ -301,7 +312,7 @@ const EntityCrudPage = ({ title, endpoint, permBase, fields, columns, statuses, 
           <DialogHeader><DialogTitle>{editing ? 'Edit' : 'Add'} {title.slice(0, -1)}</DialogTitle></DialogHeader>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {fields.map((f) => (
-              <div key={f.key} className={(f.type === 'textarea' || f.type === 'logo' || f.multi) ? 'sm:col-span-2 space-y-1' : 'space-y-1'}>
+              <div key={f.key} className={(f.type === 'textarea' || f.type === 'logo' || f.type === 'map' || f.multi) ? 'sm:col-span-2 space-y-1' : 'space-y-1'}>
                 <Label>{f.label}{f.required && ' *'}</Label>
                 {renderField(f)}
               </div>
