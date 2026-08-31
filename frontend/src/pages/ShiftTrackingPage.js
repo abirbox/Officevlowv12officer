@@ -338,7 +338,14 @@ export default function ShiftTrackingPage() {
                 icon={CheckCircle2}
                 variant={checkInOverdue ? 'warn' : 'primary'}
               >
-                {checkInOverdue ? 'Check In (overdue!)' : 'Check In'}
+                <span className="flex flex-col items-center leading-tight">
+                  <span>{checkInOverdue ? 'Check In (overdue!)' : 'Check In'}</span>
+                  {!checkInOverdue && nextDueMs != null && (
+                    <span className="text-[11px] font-normal opacity-90" data-testid="check-in-countdown">
+                      {nowMs >= nextDueMs ? 'Check-in due now' : `Next check-in ${relTime(nextDueMs)}`}
+                    </span>
+                  )}
+                </span>
               </Btn>
 
               {clockOutVisible && (
