@@ -364,7 +364,7 @@ export default function ShiftTrackingPage() {
                   testid="emergency-open-btn"
                   onClick={() => setEmergencyOpen(true)}
                   icon={AlertTriangle}
-                  variant="danger"
+                  variant="danger-soft"
                 >
                   Emergency Clock Out
                 </Btn>
@@ -412,18 +412,6 @@ export default function ShiftTrackingPage() {
             </div>
           )}
 
-          {/* Cancel Shift link */}
-          {!clockedOut && !cancelled && (
-            <button
-              className="w-full text-center text-xs text-slate-500 hover:text-red-300 pt-2"
-              data-testid="cancel-shift-link"
-              onClick={() => {
-                if (window.confirm('Cancel this shift?')) act('cancel');
-              }}
-            >
-              Cancel Shift
-            </button>
-          )}
         </div>
       </div>
     </Shell>
@@ -466,6 +454,7 @@ function Btn({ children, onClick, disabled, icon: Icon, variant = 'primary', sma
     success: 'bg-emerald-500 hover:bg-emerald-400 text-white',
     warn: 'bg-amber-500 hover:bg-amber-400 text-slate-900',
     danger: 'bg-red-500 hover:bg-red-400 text-white',
+    'danger-soft': 'bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/40',
   }[variant];
   return (
     <button
