@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Search, Loader2, MapPin } from 'lucide-react';
+import { api } from '@/lib/axios';
 import { useAppSettings } from '@/contexts/AppSettingsContext';
 import { getMapTile } from '@/lib/mapTiles';
 
@@ -15,33 +15,75 @@ L.Icon.Default.mergeOptions({
   shadowUrl: 'https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png',
 });
 
-const DEFAULT_CENTER = [23.8103, 90.4125]; // Dhaka — a sensible neutral default
+const DEFAULT_CENTER = [23.8103, 90.4125]; // Dhaka — a neutral default
 const num = (v) => (v === '' || v == null || Number.isNaN(Number(v)) ? null : Number(v));
 
+// --- Google Maps JS (Places) loader — only used when Google is configured. ---
+let googleLoader = null;
+function loadGoogle(key) {
+  if (window.google?.maps?.places) return Promise.resolve();
+  if (!googleLoader) {
+    googleLoader = new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&libraries=places`;
+      s.async = true;
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  }
+  return googleLoader;
+}
+
 /**
- * Interactive location picker.
- *  - Geocodes `address` (debounced, via OpenStreetMap Nominatim — no API key).
- *  - Draggable / click-to-place pin that writes back lat/lng via onChange.
- *  - Reacts to manual lat/lng edits by moving the preview pin.
+ * Post-site location picker.
+ *  - Autocomplete suggestions as you type (Google Places when Google Maps is
+ *    the configured provider + a key exists, otherwise OpenStreetMap/Nominatim).
+ *  - Draggable / click-to-place pin; writes lat/lng via onChange.
+ *  - Always draws the geofence radius as a circle around the pin, reflecting
+ *    the Geofence Radius field.
  */
-export default function LocationMapPicker({ address, lat, lng, radius, onChange }) {
+export default function LocationMapPicker({ address, onAddressChange, lat, lng, radius, onChange }) {
   const { settings } = useAppSettings();
-  const tileRef = useRef(getMapTile(settings));
-  tileRef.current = getMapTile(settings);
+  const tile = getMapTile(settings);
+  const useGoogle = tile.provider === 'google';
+  const googleKey = settings?.google_maps_api_key;
+
   const mapEl = useRef(null);
   const mapRef = useRef(null);
   const markerRef = useRef(null);
   const circleRef = useRef(null);
+
   const onChangeRef = useRef(onChange);
   onChangeRef.current = onChange;
+  const radiusRef = useRef(radius);
+  radiusRef.current = radius;
 
-  const lastGeocoded = useRef(null);
-  const abortRef = useRef(null);
+  const [suggestions, setSuggestions] = useState([]);
+  const [open, setOpen] = useState(false);
   const [searching, setSearching] = useState(false);
   const [notFound, setNotFound] = useState(false);
+  const acServiceRef = useRef(null);
+  const debounceRef = useRef(null);
+  const blurTimer = useRef(null);
+  const reqIdRef = useRef(0);
 
   const emit = useCallback((la, ln) => {
     onChangeRef.current?.({ lat: Number(la.toFixed(6)), lng: Number(ln.toFixed(6)) });
+  }, []);
+
+  const drawCircle = useCallback((la, ln) => {
+    const map = mapRef.current;
+    if (!map) return;
+    const r = Number(radiusRef.current) || 150;
+    if (!circleRef.current) {
+      circleRef.current = L.circle([la, ln], {
+        radius: r, color: '#0EA5E9', weight: 2, fillColor: '#0EA5E9', fillOpacity: 0.1,
+      }).addTo(map);
+    } else {
+      circleRef.current.setLatLng([la, ln]);
+      circleRef.current.setRadius(r);
+    }
   }, []);
 
   const placeMarker = useCallback((la, ln, recenter = true) => {
@@ -51,48 +93,31 @@ export default function LocationMapPicker({ address, lat, lng, radius, onChange 
       markerRef.current = L.marker([la, ln], { draggable: true }).addTo(map);
       markerRef.current.on('dragend', () => {
         const p = markerRef.current.getLatLng();
+        drawCircle(p.lat, p.lng);
         emit(p.lat, p.lng);
       });
     } else {
       markerRef.current.setLatLng([la, ln]);
     }
-    if (circleRef.current) circleRef.current.setLatLng([la, ln]);
+    drawCircle(la, ln);
     if (recenter) map.setView([la, ln], Math.max(map.getZoom(), 15));
-  }, [emit]);
+  }, [emit, drawCircle]);
 
   // Init map once.
   useEffect(() => {
     if (mapRef.current || !mapEl.current) return;
     const start = num(lat) != null && num(lng) != null ? [num(lat), num(lng)] : DEFAULT_CENTER;
     const map = L.map(mapEl.current, { scrollWheelZoom: true }).setView(start, num(lat) != null ? 15 : 11);
-    const t = tileRef.current;
-    L.tileLayer(t.url, {
-      attribution: t.attribution,
-      subdomains: t.subdomains,
-      maxZoom: t.maxZoom,
-    }).addTo(map);
+    L.tileLayer(tile.url, { attribution: tile.attribution, subdomains: tile.subdomains, maxZoom: tile.maxZoom }).addTo(map);
     map.on('click', (e) => emit(e.latlng.lat, e.latlng.lng));
     mapRef.current = map;
-
-    if (radius) {
-      circleRef.current = L.circle(start, { radius: Number(radius), color: '#0EA5E9', fillOpacity: 0.08 }).addTo(map);
-    }
     if (num(lat) != null && num(lng) != null) placeMarker(num(lat), num(lng), true);
-
-    // If coordinates already exist (e.g. editing an existing site), record the
-    // current address as "already geocoded" so the initial auto-geocode does
-    // NOT overwrite a saved / hand-placed pin. Only later address edits search.
-    if (num(lat) != null && num(lng) != null) {
-      lastGeocoded.current = (address || '').trim();
-    }
-
-    // Dialog mounts the map with 0 size initially — fix after paint.
     setTimeout(() => map.invalidateSize(), 250);
     return () => { map.remove(); mapRef.current = null; markerRef.current = null; circleRef.current = null; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // React to manual lat/lng edits (move preview pin without recentering aggressively).
+  // React to manual lat/lng edits (move pin + circle).
   useEffect(() => {
     const la = num(lat), ln = num(lng);
     if (la == null || ln == null || !mapRef.current) return;
@@ -101,82 +126,128 @@ export default function LocationMapPicker({ address, lat, lng, radius, onChange 
     placeMarker(la, ln, true);
   }, [lat, lng, placeMarker]);
 
-  // Keep the geofence circle radius in sync.
+  // Keep the geofence circle radius in sync with the radius field.
   useEffect(() => {
-    if (circleRef.current && radius) circleRef.current.setRadius(Number(radius));
+    if (circleRef.current) circleRef.current.setRadius(Number(radius) || 150);
   }, [radius]);
 
-  const geocode = useCallback(async (q) => {
+  // ---- Autocomplete ----
+  const runOsmSuggest = useCallback(async (q) => {
+    // Proxied through the backend (proper User-Agent + caching) so the browser
+    // never hits Nominatim's anonymous rate limits directly.
+    const { data } = await api.get('/geo/autocomplete', { params: { q } });
+    return (data?.suggestions || []).map((d) => ({ label: d.label, lat: d.lat, lng: d.lng }));
+  }, []);
+
+  const runGoogleSuggest = useCallback(async (q) => {
+    await loadGoogle(googleKey);
+    if (!acServiceRef.current) acServiceRef.current = new window.google.maps.places.AutocompleteService();
+    return new Promise((resolve) => {
+      acServiceRef.current.getPlacePredictions({ input: q }, (preds, status) => {
+        if (status !== window.google.maps.places.PlacesServiceStatus.OK || !preds) return resolve([]);
+        resolve(preds.map((p) => ({ label: p.description, placeId: p.place_id })));
+      });
+    });
+  }, [googleKey]);
+
+  const fetchSuggestions = useCallback(async (q) => {
     const query = (q || '').trim();
-    if (!query) return;
+    if (query.length < 3) { setSuggestions([]); return; }
+    const reqId = ++reqIdRef.current;
     setSearching(true);
     setNotFound(false);
-    // Cancel any in-flight lookup so a slow older response can't land last.
-    if (abortRef.current) abortRef.current.abort();
-    const controller = new AbortController();
-    abortRef.current = controller;
     try {
-      const res = await fetch(
-        `https://nominatim.openstreetmap.org/search?format=json&limit=1&q=${encodeURIComponent(query)}`,
-        { headers: { Accept: 'application/json' }, signal: controller.signal },
-      );
-      const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) {
-        const { lat: la, lon: ln } = data[0];
-        placeMarker(Number(la), Number(ln), true);
-        emit(Number(la), Number(ln));
-      } else {
-        setNotFound(true);
-      }
-    } catch (e) {
-      if (e.name === 'AbortError') return;
+      const list = useGoogle && googleKey ? await runGoogleSuggest(query) : await runOsmSuggest(query);
+      if (reqId !== reqIdRef.current) return; // a newer query superseded this one
+      setSuggestions(list);
+      setOpen(true);
+      if (list.length === 0) setNotFound(true);
+    } catch {
+      if (reqId !== reqIdRef.current) return;
+      setSuggestions([]);
       setNotFound(true);
     } finally {
-      if (abortRef.current === controller) {
-        abortRef.current = null;
-        setSearching(false);
-      }
+      if (reqId === reqIdRef.current) setSearching(false);
     }
-  }, [emit, placeMarker]);
+  }, [useGoogle, googleKey, runGoogleSuggest, runOsmSuggest]);
 
-  // Auto-geocode when the address changes (debounced). Skips if we already
-  // geocoded this exact string so a manual pin-drag isn't overwritten.
-  useEffect(() => {
-    const q = (address || '').trim();
-    if (!q || q === lastGeocoded.current) return;
-    const t = setTimeout(() => {
-      lastGeocoded.current = q;
-      geocode(q);
-    }, 900);
-    return () => clearTimeout(t);
-  }, [address, geocode]);
+  const onType = (v) => {
+    onAddressChange?.(v);
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(() => fetchSuggestions(v), 350);
+  };
+
+  const resolveGooglePlace = (placeId) => new Promise((resolve) => {
+    const svc = new window.google.maps.places.PlacesService(document.createElement('div'));
+    svc.getDetails({ placeId, fields: ['geometry', 'formatted_address'] }, (place, status) => {
+      if (status === window.google.maps.places.PlacesServiceStatus.OK && place?.geometry?.location) {
+        resolve({ lat: place.geometry.location.lat(), lng: place.geometry.location.lng() });
+      } else resolve(null);
+    });
+  });
+
+  const selectSuggestion = async (sug) => {
+    setOpen(false);
+    onAddressChange?.(sug.label);
+    let coords = sug.lat != null ? { lat: sug.lat, lng: sug.lng } : null;
+    if (!coords && sug.placeId) coords = await resolveGooglePlace(sug.placeId);
+    if (coords) {
+      placeMarker(coords.lat, coords.lng, true);
+      emit(coords.lat, coords.lng);
+    }
+  };
 
   const hasPin = num(lat) != null && num(lng) != null;
 
   return (
     <div className="space-y-2" data-testid="location-map-picker">
-      <div className="flex items-center gap-2">
-        <Button
-          type="button"
-          size="sm"
-          variant="outline"
-          onClick={() => geocode(address)}
-          disabled={searching || !(address || '').trim()}
-          data-testid="map-search-address"
-        >
-          {searching ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
-          <span className="ml-1.5">Search address</span>
-        </Button>
-        <span className="text-xs text-[#64748B] dark:text-[#A1A1AA] flex items-center gap-1">
-          <MapPin className="w-3 h-3" />
-          {hasPin
-            ? `Pinned: ${num(lat).toFixed(5)}, ${num(lng).toFixed(5)}`
-            : 'Click the map or drag the pin to set the location'}
-        </span>
+      <div className="relative">
+        <div className="relative">
+          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-[#94A3B8]" />
+          <Input
+            value={address || ''}
+            onChange={(e) => onType(e.target.value)}
+            onFocus={() => { if (suggestions.length) setOpen(true); }}
+            onBlur={() => { blurTimer.current = setTimeout(() => setOpen(false), 180); }}
+            placeholder="Search an address…"
+            className="pl-9 pr-9"
+            data-testid="field-location"
+            autoComplete="off"
+          />
+          {searching && <Loader2 className="w-4 h-4 absolute right-3 top-1/2 -translate-y-1/2 animate-spin text-[#94A3B8]" />}
+        </div>
+        {open && suggestions.length > 0 && (
+          <ul
+            className="absolute z-[1000] mt-1 w-full max-h-56 overflow-auto rounded-lg border border-[#E2E8F0] dark:border-[#27272A] bg-white dark:bg-[#18181B] shadow-lg"
+            data-testid="location-suggestions"
+            onMouseDown={() => { if (blurTimer.current) clearTimeout(blurTimer.current); }}
+          >
+            {suggestions.map((sug, i) => (
+              <li key={sug.placeId || `${sug.lat},${sug.lng}` || i}>
+                <button
+                  type="button"
+                  onClick={() => selectSuggestion(sug)}
+                  className="w-full text-left px-3 py-2 text-sm hover:bg-[#F1F5F9] dark:hover:bg-[#27272A] flex items-start gap-2"
+                  data-testid={`location-suggestion-${i}`}
+                >
+                  <MapPin className="w-3.5 h-3.5 mt-0.5 shrink-0 text-[#0EA5E9]" />
+                  <span className="break-words">{sug.label}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      <div className="flex items-center gap-1 text-xs text-[#64748B] dark:text-[#A1A1AA]">
+        <MapPin className="w-3 h-3" />
+        {hasPin
+          ? `Pinned: ${num(lat).toFixed(5)}, ${num(lng).toFixed(5)} · geofence ${Number(radius) || 150} m`
+          : 'Pick a suggestion, click the map, or drag the pin to set the location'}
       </div>
       {notFound && (
         <p className="text-xs text-amber-600 dark:text-amber-400" data-testid="map-not-found">
-          Address not found automatically — drag the pin or type the coordinates manually.
+          No matches found — drag the pin or type coordinates manually.
         </p>
       )}
       <div

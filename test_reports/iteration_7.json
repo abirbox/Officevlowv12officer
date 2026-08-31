@@ -1,0 +1,27 @@
+{
+  "summary": "Frontend-only test of the improved Post Site address search (Dispatch > Post Sites > Add/Edit Post Site) on the preview URL as admin@example.com. Verified: multi-result OSM/Nominatim autocomplete dropdown, pin + geofence circle on suggestion select, lat/lng auto-fill, circle scaling with the Geofence Radius field, map-click + pin-drag + manual coordinate entry moving pin AND circle, save, and edit persistence of pin + circle sized to the saved radius. All 8 checks passed. Test post site created and deleted (cleanup done).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Post Sites list - delete action", "issues": ["Delete uses the browser-native window.confirm ('Permanently delete \"X\"? This cannot be undone.') instead of the shadcn AlertDialog used elsewhere - inconsistent styling and not automation/testid friendly (pre-existing, out of scope of this request)."]},
+      {"screen": "Add/Edit Post Site - Location", "issues": ["After clicking a new point on the map (or dragging the pin), the address input keeps the previously selected place text, so the label can be stale relative to the coordinates. Minor; consider clearing/annotating the address or reverse-geocoding."]}
+    ]
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "LocationMapPicker calls https://nominatim.openstreetmap.org/search directly from the browser on every keystroke (350ms debounce, min 3 chars) with no identifying User-Agent/email and no caching. Nominatim's usage policy forbids heavy anonymous browser use; under real traffic this will be rate-limited/blocked (HTTP 403/429) and the dropdown will silently show 'No matches found'. Recommend proxying through the backend (/api/geo/autocomplete) with caching + a proper UA.",
+    "fetchSuggestions has no request-sequencing guard (no AbortController / request id), so a slow earlier response can overwrite the suggestions of a newer query.",
+    "runOsmSuggest does not check res.ok - a 403/429 HTML body may parse-fail and be reported as 'not found' rather than a rate-limit error message."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (per request)", "frontend": "100% (8/8 checks)"},
+  "seed_data_creation": "Created Post Site TEST9911 / TEST_GeofenceSite (radius 400m) for save+edit verification; deleted at the end. Only the pre-existing '5210 / Birol' site remains.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@example.com / admin123",
+  "context_for_next_testing_agent": "Verified evidence: (1) Typing 'Central Park New' in [data-testid=field-location] returned 2 suggestions ([location-suggestion-0]='Central Park, New York County...', -1='Central Park, Pennsville Township...'), and 'Gulshan Dhaka' returned 2 - multi-result autocomplete confirmed (not exact-match-only). (2) Clicking suggestion-0 filled field-latitude=40.782773 / field-longitude=-73.965363, dropped 1 .leaflet-marker-icon and drew 1 path.leaflet-interactive circle; the address input retained the full place label. (3) Circle SVG arc radius scaled with field-geofence_radius_m: 150m=34px, 500m=115px, 100m=23px (zoom 15) and the helper text read 'Pinned: ... geofence 500 m'. (4) Clicking the map changed lat 23.79784 -> 23.799874 with the circle following; typing lat/lng manually (23.8/90.4) moved pin+circle; dragging the marker moved both (23.8 -> 23.798421). (5) Save via [save-entity] -> 'Post Site created' toast; reopening [edit-6a9604b57c8e2b12692621c9] showed address, lat/lng, radius=400, 1 marker and circle 92px (matches 400m at zoom 15). Tips: Nominatim may rate-limit - retry typing if dropdown empty; deletion needs a page.on('dialog') accept handler because it uses window.confirm.",
+  "rca_of_the_issue": "N/A - no functional defects found in the requested feature."
+}

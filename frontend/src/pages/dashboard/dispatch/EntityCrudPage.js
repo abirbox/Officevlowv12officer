@@ -96,6 +96,7 @@ const EntityCrudPage = ({ title, endpoint, permBase, fields, columns, statuses, 
       return (
         <LocationMapPicker
           address={form[f.addressKey] || ''}
+          onAddressChange={(v) => setForm((prev) => ({ ...prev, [f.addressKey]: v }))}
           lat={form[f.latKey] ?? ''}
           lng={form[f.lngKey] ?? ''}
           radius={form[f.radiusKey]}
