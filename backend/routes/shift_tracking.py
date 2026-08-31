@@ -15,6 +15,7 @@ from utils.shift_alerts import (
     CHECKIN_INTERVAL_SECONDS, GRACE_SECONDS, CLOCKOUT_GRACE_SECONDS,
     send_geofence_exit,
 )
+from routes.dispatch import broadcast_live_update
 
 router = APIRouter(prefix="/shift-track", tags=["shift-tracking"])
 
@@ -205,7 +206,9 @@ async def clock_in(token: str, ping: GeoPing, db=Depends(get_db)):
         "updated_at": now,
     }})
     await _action_history(db, sched, "Clocked In")
-    return await _build_payload(db, await _load(db, token))
+    fresh = await _load(db, token)
+    await broadcast_live_update(db, fresh)
+    return await _build_payload(db, fresh)
 
 
 @router.post("/{token}/check-in")
@@ -226,7 +229,9 @@ async def check_in(token: str, ping: GeoPing, db=Depends(get_db)):
         },
     })
     await _action_history(db, sched, "Check-In")
-    return await _build_payload(db, await _load(db, token))
+    fresh = await _load(db, token)
+    await broadcast_live_update(db, fresh)
+    return await _build_payload(db, fresh)
 
 
 @router.post("/{token}/clock-out")
@@ -250,7 +255,9 @@ async def clock_out(token: str, ping: GeoPing, db=Depends(get_db)):
         "updated_at": now,
     }})
     await _action_history(db, sched, "Clocked Out")
-    return await _build_payload(db, await _load(db, token))
+    fresh = await _load(db, token)
+    await broadcast_live_update(db, fresh, removed=True)
+    return await _build_payload(db, fresh)
 
 
 @router.post("/{token}/emergency-clock-out")
@@ -275,7 +282,9 @@ async def emergency_clock_out(token: str, payload: EmergencyOut, db=Depends(get_
         "updated_at": now,
     }})
     await _action_history(db, sched, "Emergency Clock Out", remarks=payload.remark.strip())
-    return await _build_payload(db, await _load(db, token))
+    fresh = await _load(db, token)
+    await broadcast_live_update(db, fresh, removed=True)
+    return await _build_payload(db, fresh)
 
 
 @router.post("/{token}/cancel")
@@ -288,7 +297,9 @@ async def cancel_shift(token: str, db=Depends(get_db)):
         "updated_at": now,
     }})
     await _action_history(db, sched, "Cancelled")
-    return await _build_payload(db, await _load(db, token))
+    fresh = await _load(db, token)
+    await broadcast_live_update(db, fresh, removed=True)
+    return await _build_payload(db, fresh)
 
 
 @router.post("/{token}/geofence-exit")

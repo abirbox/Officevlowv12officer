@@ -1399,6 +1399,122 @@ async def list_schedules(request: Request, db=Depends(get_db),
     return {"items": out, "total": total, "page": page, "limit": limit}
 
 
+def _iso_val(v):
+    if isinstance(v, datetime):
+        if v.tzinfo is None:
+            v = v.replace(tzinfo=timezone.utc)
+        return v.isoformat()
+    return v
+
+
+async def build_live_entry(db, d: dict) -> dict:
+    """Build one Live-Tracking officer entry (shared by the REST endpoint and
+    the real-time WebSocket broadcaster so both stay in sync)."""
+    async def _find(coll, _id):
+        if not _id:
+            return None
+        try:
+            return await db[coll].find_one({"_id": _oid(_id)})
+        except Exception:
+            return None
+
+    off = await _find("dispatch_officers", d.get("officer_id"))
+    post = await _find("dispatch_post_sites", d.get("post_site_id")) or {}
+    cli = await _find("dispatch_clients", d.get("client_id"))
+
+    geo_lat = post.get("latitude")
+    geo_lng = post.get("longitude")
+
+    pos = None
+    source = None
+    pos_at = None
+    check_ins = d.get("check_ins") or []
+    for entry in reversed(check_ins):
+        if entry.get("lat") is not None and entry.get("lng") is not None:
+            pos = {"lat": entry["lat"], "lng": entry["lng"]}
+            source = "check_in"
+            pos_at = _iso_val(entry.get("at"))
+            break
+    if pos is None:
+        ci = d.get("clock_in_location") or {}
+        if ci.get("lat") is not None and ci.get("lng") is not None:
+            pos = {"lat": ci["lat"], "lng": ci["lng"]}
+            source = "clock_in"
+            pos_at = _iso_val(d.get("clock_in_at"))
+    if pos is None and geo_lat is not None and geo_lng is not None:
+        pos = {"lat": geo_lat, "lng": geo_lng}
+        source = "geofence"
+
+    base = os.environ.get("FRONTEND_URL", "").rstrip("/")
+    token = d.get("tracking_token")
+    return {
+        "schedule_id": str(d["_id"]),
+        "officer_name": (off or {}).get("name"),
+        "officer_code": (off or {}).get("officer_code"),
+        "client_name": (cli or {}).get("name"),
+        "post_pin": post.get("post_pin"),
+        "post_name": post.get("name"),
+        "city": post.get("city"),
+        "location": post.get("location"),
+        "shift_type": d.get("shift_type"),
+        "date": d.get("date"),
+        "start_time": d.get("start_time"),
+        "end_time": d.get("end_time"),
+        "clock_in_at": _iso_val(d.get("clock_in_at")),
+        "last_check_in_at": _iso_val(d.get("last_check_in_at")),
+        "check_in_count": len(check_ins),
+        "position": pos,
+        "position_source": source,
+        "position_at": pos_at,
+        "geofence": {
+            "lat": geo_lat, "lng": geo_lng,
+            "radius_m": post.get("geofence_radius_m") or 150,
+            "configured": geo_lat is not None and geo_lng is not None,
+        },
+        "tracking_token": token,
+        "tracking_url": f"{base}/shift/{token}" if token else None,
+    }
+
+
+async def live_recipients(db, client_id=None) -> list:
+    """User ids that should receive live-tracking pushes: dispatch staff plus
+    the client user linked to the shift."""
+    query = {"$or": [
+        {"role": {"$in": ["super_admin", "hd"]}},
+        {"permissions": {"$in": [
+            "dispatch.confirmation.view", "dispatch.schedule.view", "dispatch.dashboard.view",
+        ]}},
+    ]}
+    recipients = await db.users.find(query, {"_id": 1}).to_list(2000)
+    ids = [str(u["_id"]) for u in recipients]
+    if client_id:
+        client_users = await db.users.find(
+            {"role": "client", "client_id": str(client_id)}, {"_id": 1}).to_list(100)
+        for u in client_users:
+            uid = str(u["_id"])
+            if uid not in ids:
+                ids.append(uid)
+    return ids
+
+
+async def broadcast_live_update(db, sched: dict, removed: bool = False):
+    """Push a single officer's live position/state to all dispatch viewers over
+    the WebSocket. Best-effort — never raises into the caller."""
+    try:
+        ids = await live_recipients(db, sched.get("client_id"))
+        if not ids:
+            return
+        entry = await build_live_entry(db, sched)
+        await manager.send_to_users(ids, {
+            "type": "dispatch_live_update",
+            "schedule_id": str(sched["_id"]),
+            "removed": removed,
+            "officer": entry,
+        })
+    except Exception:
+        pass
+
+
 @router.get("/live-tracking")
 async def live_tracking(request: Request, db=Depends(get_db)):
     """Every currently clocked-in officer with their last known position, for
@@ -1408,82 +1524,8 @@ async def live_tracking(request: Request, db=Depends(get_db)):
     require_permission(user, "dispatch.schedule.view")
 
     docs = await db.dispatch_schedules.find({"shift_status": "Clocked In"}).to_list(2000)
-
-    async def _find(coll, _id):
-        if not _id:
-            return None
-        try:
-            return await db[coll].find_one({"_id": _oid(_id)})
-        except Exception:
-            return None
-
-    def _iso(v):
-        if isinstance(v, datetime):
-            if v.tzinfo is None:
-                v = v.replace(tzinfo=timezone.utc)
-            return v.isoformat()
-        return v
-
-    base = os.environ.get("FRONTEND_URL", "").rstrip("/")
-    out = []
-    for d in docs:
-        off = await _find("dispatch_officers", d.get("officer_id"))
-        post = await _find("dispatch_post_sites", d.get("post_site_id")) or {}
-        cli = await _find("dispatch_clients", d.get("client_id"))
-
-        geo_lat = post.get("latitude")
-        geo_lng = post.get("longitude")
-
-        pos = None
-        source = None
-        pos_at = None
-        check_ins = d.get("check_ins") or []
-        for entry in reversed(check_ins):
-            if entry.get("lat") is not None and entry.get("lng") is not None:
-                pos = {"lat": entry["lat"], "lng": entry["lng"]}
-                source = "check_in"
-                pos_at = _iso(entry.get("at"))
-                break
-        if pos is None:
-            ci = d.get("clock_in_location") or {}
-            if ci.get("lat") is not None and ci.get("lng") is not None:
-                pos = {"lat": ci["lat"], "lng": ci["lng"]}
-                source = "clock_in"
-                pos_at = _iso(d.get("clock_in_at"))
-        if pos is None and geo_lat is not None and geo_lng is not None:
-            pos = {"lat": geo_lat, "lng": geo_lng}
-            source = "geofence"
-
-        token = d.get("tracking_token")
-        out.append({
-            "schedule_id": str(d["_id"]),
-            "officer_name": (off or {}).get("name"),
-            "officer_code": (off or {}).get("officer_code"),
-            "client_name": (cli or {}).get("name"),
-            "post_pin": post.get("post_pin"),
-            "post_name": post.get("name"),
-            "city": post.get("city"),
-            "location": post.get("location"),
-            "shift_type": d.get("shift_type"),
-            "date": d.get("date"),
-            "start_time": d.get("start_time"),
-            "end_time": d.get("end_time"),
-            "clock_in_at": _iso(d.get("clock_in_at")),
-            "last_check_in_at": _iso(d.get("last_check_in_at")),
-            "check_in_count": len(check_ins),
-            "position": pos,
-            "position_source": source,
-            "position_at": pos_at,
-            "geofence": {
-                "lat": geo_lat, "lng": geo_lng,
-                "radius_m": post.get("geofence_radius_m") or 150,
-                "configured": geo_lat is not None and geo_lng is not None,
-            },
-            "tracking_token": token,
-            "tracking_url": f"{base}/shift/{token}" if token else None,
-        })
-
-    return {"officers": out, "count": len(out), "server_now": _iso(datetime.now(timezone.utc))}
+    out = [await build_live_entry(db, d) for d in docs]
+    return {"officers": out, "count": len(out), "server_now": _iso_val(datetime.now(timezone.utc))}
 
 
 @router.get("/schedules/{sid}")

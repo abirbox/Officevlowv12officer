@@ -70,7 +70,10 @@ const LiveTrackingPage = () => {
   const [query, setQuery] = useState('');
   const [flyTarget, setFlyTarget] = useState(null);
   const [lastUpdated, setLastUpdated] = useState(null);
+  const [liveConnected, setLiveConnected] = useState(false);
   const markerRefs = useRef({});
+  const wsRef = useRef(null);
+  const reconnectRef = useRef(null);
 
   const fetchLive = async (silent = false) => {
     try {
@@ -86,8 +89,56 @@ const LiveTrackingPage = () => {
 
   useEffect(() => {
     fetchLive();
-    const t = setInterval(() => fetchLive(true), 10000);
+    // Safety-net poll (real-time updates arrive over the WebSocket below).
+    const t = setInterval(() => fetchLive(true), 30000);
     return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Real-time push: apply per-officer updates instantly instead of waiting for
+  // the poll. Upserts a moved/checked-in officer; removes one who clocked out.
+  useEffect(() => {
+    let closedByUs = false;
+
+    const applyUpdate = (msg) => {
+      const sid = msg.schedule_id;
+      if (!sid) return;
+      setOfficers((prev) => {
+        if (msg.removed) return prev.filter((o) => o.schedule_id !== sid);
+        const next = prev.filter((o) => o.schedule_id !== sid);
+        if (msg.officer) next.push(msg.officer);
+        return next;
+      });
+      setLastUpdated(new Date());
+    };
+
+    const connect = () => {
+      try {
+        const proto = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const ws = new WebSocket(`${proto}//${window.location.host}/api/ws/dispatch`);
+        wsRef.current = ws;
+        ws.onopen = () => setLiveConnected(true);
+        ws.onmessage = (event) => {
+          try {
+            const msg = JSON.parse(event.data);
+            if (msg.type === 'dispatch_live_update') applyUpdate(msg);
+          } catch { /* ignore malformed */ }
+        };
+        ws.onclose = () => {
+          setLiveConnected(false);
+          if (!closedByUs) reconnectRef.current = setTimeout(connect, 8000);
+        };
+        ws.onerror = () => { try { ws.close(); } catch { /* noop */ } };
+      } catch { /* WS unavailable — the 30s poll keeps the map fresh */ }
+    };
+
+    connect();
+    return () => {
+      closedByUs = true;
+      if (reconnectRef.current) clearTimeout(reconnectRef.current);
+      if (wsRef.current) { try { wsRef.current.close(); } catch { /* noop */ } }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const withPosition = useMemo(() => officers.filter((o) => o.position), [officers]);
@@ -142,8 +193,8 @@ const LiveTrackingPage = () => {
             Live Tracking
           </h1>
           <p className="text-[#64748B] dark:text-[#A1A1AA] flex items-center gap-2 text-sm">
-            <Radio className="w-4 h-4 text-green-500 animate-pulse" />
-            Auto-refreshing every 10s · {officers.length} officer{officers.length === 1 ? '' : 's'} clocked in · {withPosition.length} on map
+            <Radio className={`w-4 h-4 ${liveConnected ? 'text-green-500 animate-pulse' : 'text-amber-500'}`} />
+            {liveConnected ? 'Live · real-time updates' : 'Reconnecting… (auto-refresh every 30s)'} · {officers.length} officer{officers.length === 1 ? '' : 's'} clocked in · {withPosition.length} on map
             {lastUpdated && <span className="text-[#94A3B8]">· updated {lastUpdated.toLocaleTimeString()}</span>}
           </p>
         </div>
