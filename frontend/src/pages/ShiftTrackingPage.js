@@ -157,6 +157,8 @@ export default function ShiftTrackingPage() {
 
   const clockOutOpensMs = w.clock_out_opens_at ? new Date(w.clock_out_opens_at).getTime() : null;
   const clockOutVisible = clockedIn && (clockOutOpensMs == null || nowMs >= clockOutOpensMs);
+  const clockInOpensMs = w.clock_in_opens_at ? new Date(w.clock_in_opens_at).getTime() : null;
+  const clockInWindowOpen = clockInOpensMs == null || nowMs >= clockInOpensMs;
   const nextDueMs = t.next_check_in_due_at ? new Date(t.next_check_in_due_at).getTime() : null;
   const graceMs = (t.checkin_grace_minutes || 15) * 60000;
   const checkInOverdue = nextDueMs != null && nowMs > nextDueMs + graceMs;
@@ -246,7 +248,7 @@ export default function ShiftTrackingPage() {
             <>
               <Btn
                 testid="clock-in-btn"
-                disabled={busy || !inside || (configured && !pos)}
+                disabled={busy || !inside || (configured && !pos) || !clockInWindowOpen}
                 onClick={() => act('clock-in', ping())}
                 icon={LogIn}
                 variant="primary"
@@ -256,6 +258,11 @@ export default function ShiftTrackingPage() {
               {!inside && configured && (
                 <p className="text-xs text-red-300 text-center" data-testid="clock-in-blocked">
                   You must be inside the geofence to Clock In.
+                </p>
+              )}
+              {inside && !clockInWindowOpen && clockInOpensMs && (
+                <p className="text-xs text-slate-400 text-center" data-testid="clock-in-hint">
+                  Clock In opens {relTime(clockInOpensMs)} (10 min before shift start).
                 </p>
               )}
             </>
@@ -286,7 +293,7 @@ export default function ShiftTrackingPage() {
               )}
               {!clockOutVisible && clockOutOpensMs && (
                 <p className="text-xs text-slate-400 text-center" data-testid="clock-out-hint">
-                  Clock Out opens {relTime(clockOutOpensMs)} (15 min before shift end).
+                  Clock Out opens {relTime(clockOutOpensMs)} (at shift end time).
                 </p>
               )}
 

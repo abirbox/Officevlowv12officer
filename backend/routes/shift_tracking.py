@@ -18,7 +18,8 @@ from utils.shift_alerts import (
 
 router = APIRouter(prefix="/shift-track", tags=["shift-tracking"])
 
-CLOCKOUT_WINDOW_SECONDS = 15 * 60        # clock-out opens 15 min before end
+CLOCKIN_WINDOW_SECONDS = 10 * 60         # clock-in opens 10 min before start
+CLOCKOUT_WINDOW_SECONDS = 0              # clock-out opens exactly at shift end
 LINK_EXPIRY_SECONDS = 24 * 3600          # link dies 1 day after shift end
 GEOFENCE_EMAIL_THROTTLE_SECONDS = 5 * 60
 
@@ -72,6 +73,7 @@ async def _build_payload(db, sched: dict) -> dict:
 
     start_utc, end_utc = shift_bounds_utc(
         sched.get("date"), sched.get("start_time"), sched.get("end_time"))
+    clockin_opens = start_utc - timedelta(seconds=CLOCKIN_WINDOW_SECONDS) if start_utc else None
     clockout_opens = end_utc - timedelta(seconds=CLOCKOUT_WINDOW_SECONDS) if end_utc else None
 
     return {
@@ -114,6 +116,7 @@ async def _build_payload(db, sched: dict) -> dict:
         "windows": {
             "shift_start_at": _iso(start_utc),
             "shift_end_at": _iso(end_utc),
+            "clock_in_opens_at": _iso(clockin_opens),
             "clock_out_opens_at": _iso(clockout_opens),
             "server_now": _iso(_now()),
         },
@@ -171,6 +174,11 @@ async def clock_in(token: str, ping: GeoPing, db=Depends(get_db)):
         raise HTTPException(400, "This shift has been cancelled.")
     if sched.get("clock_in_at"):
         raise HTTPException(400, "You have already clocked in.")
+    start_utc, _ = shift_bounds_utc(sched.get("date"), sched.get("start_time"), sched.get("end_time"))
+    if start_utc:
+        opens = start_utc - timedelta(seconds=CLOCKIN_WINDOW_SECONDS)
+        if _now() < opens:
+            raise HTTPException(400, "Clock In opens 10 minutes before the shift start time.")
     post = await _post(db, sched)
     _require_geofence(post, ping, "Clock In")
     now = _now()
@@ -218,7 +226,7 @@ async def clock_out(token: str, ping: GeoPing, db=Depends(get_db)):
     if end_utc:
         opens = end_utc - timedelta(seconds=CLOCKOUT_WINDOW_SECONDS)
         if _now() < opens:
-            raise HTTPException(400, "Clock Out opens 15 minutes before the shift end time.")
+            raise HTTPException(400, "Clock Out opens at the shift end time.")
     post = await _post(db, sched)
     _require_geofence(post, ping, "Clock Out")
     now = _now()
