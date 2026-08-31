@@ -1,5 +1,6 @@
 from fastapi import APIRouter, HTTPException, Request, Depends, UploadFile
 from datetime import datetime, timezone
+import os
 
 from models.settings import (
     AppSettings, AppSettingsUpdate, CURRENCY_DIRECTORY, TIMEZONE_DIRECTORY,
@@ -8,6 +9,10 @@ from models.settings import (
 from utils.auth import get_current_user
 from utils.storage import put_object, generate_upload_path, to_public_url
 from utils.smtp import SMTP_KEY, encrypt_secret, get_smtp_doc
+from utils.email_templates import (
+    get_templates, save_template, render_template, SHORTCODES, DEFAULT_TEMPLATES,
+)
+from utils.mailer import send_email
 
 router = APIRouter(prefix="/settings", tags=["App Settings"])
 
@@ -183,6 +188,68 @@ async def update_email_settings(payload: EmailSettingsUpdate, request: Request, 
         "from_email": doc.get("from_email", ""),
         "has_password": bool(doc.get("password_enc")),
     }
+
+
+# ---------------------------------------------------------------------------
+# Editable email templates (subject / from-name / HTML body + shortcodes)
+# ---------------------------------------------------------------------------
+@router.get("/email-templates")
+async def list_email_templates(request: Request, db=Depends(get_db)):
+    await require_admin(request, db)
+    tpls = await get_templates(db)
+    smtp = await get_smtp_doc(db) or {}
+    resend_on = bool(os.environ.get("RESEND_API_KEY"))
+    return {
+        "templates": tpls,
+        "shortcodes": SHORTCODES,
+        "email_configured": bool(smtp.get("host") and smtp.get("password_enc")) or resend_on,
+        "transport": "smtp" if smtp.get("host") else ("resend" if resend_on else "none"),
+    }
+
+
+@router.put("/email-templates")
+async def update_email_template(payload: dict, request: Request, db=Depends(get_db)):
+    await require_admin(request, db)
+    key = (payload.get("key") or "").strip()
+    if key not in DEFAULT_TEMPLATES:
+        raise HTTPException(status_code=400, detail="Unknown template key")
+    await save_template(
+        db, key,
+        (payload.get("from_name") or "").strip(),
+        (payload.get("subject") or "").strip(),
+        payload.get("body_html") or "",
+    )
+    return (await get_templates(db))[key]
+
+
+@router.post("/email/test")
+async def send_test_email(payload: dict, request: Request, db=Depends(get_db)):
+    await require_admin(request, db)
+    to = (payload.get("to") or "").strip()
+    if not to or "@" not in to:
+        raise HTTPException(status_code=400, detail="A valid recipient email is required")
+    key = payload.get("template_key") or "test"
+    if key not in DEFAULT_TEMPLATES:
+        key = "test"
+    sample = {
+        "officer_name": "John Doe", "officer_code": "OF-001",
+        "post_name": "Main Gate", "post_pin": "1234", "location": "HQ Building",
+        "client_name": "Acme Corp", "shift_date": datetime.now(timezone.utc).strftime("%Y-%m-%d"),
+        "shift_type": "Day", "start_time": "08:00", "end_time": "20:00",
+        "timestamp": datetime.now(timezone.utc).strftime("%d %b %Y, %I:%M %p"),
+        "shift_details": "<p><b>Officer:</b> John Doe (OF-001)<br><b>Post:</b> Main Gate · Pin 1234</p>",
+    }
+    r = await render_template(db, key, sample)
+    result = await send_email(db, to=to, subject=r["subject"] or "OfficeFlow test email",
+                              html=r["html"], from_name=r["from_name"])
+    if not result.get("sent"):
+        reason = result.get("reason") or "email not configured"
+        if reason == "no_api_key":
+            reason = "Email is not configured. Add SMTP settings above (or a Resend key) to send email."
+        return {"sent": False, "transport": result.get("transport"), "message": reason}
+    return {"sent": True, "transport": result.get("transport"),
+            "message": f"Test email sent to {to} via {result.get('transport')}."}
+
 
 
 @router.get("/currencies")

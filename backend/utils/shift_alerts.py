@@ -10,6 +10,8 @@ from datetime import datetime, timezone, timedelta
 from bson import ObjectId
 
 from utils.email import send_email_with_attachment
+from utils.mailer import send_email
+from utils.email_templates import render_template
 from utils.shift_time import shift_bounds_utc
 from utils.tz import to_local, DEFAULT_TZ
 
@@ -76,79 +78,67 @@ async def _send_all(recipients: list, subject: str, html: str):
             logger.error("Shift alert email failed to %s: %s", to, e)
 
 
-async def send_missed_checkin(db, sched: dict, due: datetime):
+def _alert_values(sched: dict, ctx: dict, extra: dict | None = None) -> dict:
+    officer = ctx.get("officer") or {}
+    post = ctx.get("post") or {}
+    client = ctx.get("client") or {}
+    values = {
+        "officer_name": officer.get("name", "The officer"),
+        "officer_code": officer.get("officer_code", "—"),
+        "post_name": post.get("name", "—"),
+        "post_pin": post.get("post_pin", "—"),
+        "location": post.get("location", sched.get("location", "—")),
+        "client_name": client.get("name", "—"),
+        "shift_date": sched.get("date", "—"),
+        "shift_type": sched.get("shift_type", ""),
+        "start_time": sched.get("start_time", ""),
+        "end_time": sched.get("end_time", ""),
+        "timestamp": _fmt(datetime.now(timezone.utc)),
+        "shift_details": _shift_line(sched, ctx),
+    }
+    if extra:
+        values.update(extra)
+    return values
+
+
+async def _dispatch_alert(db, sched, key, extra=None, fallback_subject="", fallback_html=""):
+    """Render the admin-editable template for this alert type (falling back to
+    the built-in text) and send it to all recipients via the unified mailer."""
     recipients, ctx = await resolve_recipients(db, sched)
-    officer = (ctx["officer"] or {}).get("name", "The officer")
-    subject = f"⚠️ Missed hourly check-in — {officer}"
-    html = (
-        f"<h2>Missed Check-In Alert</h2>"
-        f"<p>{officer} has not completed the required hourly check-in "
-        f"(due by {_fmt(due + timedelta(seconds=GRACE_SECONDS))}).</p>"
-        f"<p>{_shift_line(sched, ctx)}</p>"
-        f"<p>Time of alert: {_fmt(datetime.now(timezone.utc))}</p>"
-    )
-    await _send_all(recipients, subject, html)
-    logger.info("Missed check-in alert sent for schedule %s to %s", sched.get("_id"), recipients)
+    values = _alert_values(sched, ctx, extra)
+    r = await render_template(db, key, values)
+    subject = r.get("subject") or fallback_subject
+    html = r.get("html") or fallback_html
+    from_name = r.get("from_name")
+    for to in recipients:
+        try:
+            await send_email(db, to=to, subject=subject, html=html, from_name=from_name)
+        except Exception as e:  # noqa: BLE001
+            logger.error("Shift alert email failed to %s: %s", to, e)
+    logger.info("Alert '%s' sent for schedule %s to %s", key, sched.get("_id"), recipients)
+    return recipients
+
+
+async def send_missed_checkin(db, sched: dict, due: datetime):
+    await _dispatch_alert(db, sched, "missed_checkin")
 
 
 async def send_missed_clockout(db, sched: dict, end_utc: datetime):
-    recipients, ctx = await resolve_recipients(db, sched)
-    officer = (ctx["officer"] or {}).get("name", "The officer")
-    subject = f"⚠️ Missed clock-out — {officer}"
-    html = (
-        f"<h2>Missed Clock-Out Alert</h2>"
-        f"<p>{officer} has not clocked out. The shift ended at {_fmt(end_utc)} "
-        f"(15+ minutes ago). Please review and resolve manually.</p>"
-        f"<p>{_shift_line(sched, ctx)}</p>"
-        f"<p>Time of alert: {_fmt(datetime.now(timezone.utc))}</p>"
-    )
-    await _send_all(recipients, subject, html)
-    logger.info("Missed clock-out alert sent for schedule %s to %s", sched.get("_id"), recipients)
+    await _dispatch_alert(db, sched, "missed_clockout")
 
 
 async def send_missed_clockin(db, sched: dict, start_utc: datetime):
-    recipients, ctx = await resolve_recipients(db, sched)
-    officer = (ctx["officer"] or {}).get("name", "The officer")
-    subject = f"⚠️ Missed clock-in — {officer}"
-    html = (
-        f"<h2>Missed Clock-In Alert</h2>"
-        f"<p>{officer} has not clocked in for their shift. The shift started at "
-        f"{_fmt(start_utc)} and the 10-minute grace period has now passed.</p>"
-        f"<p>{_shift_line(sched, ctx)}</p>"
-        f"<p>Time of alert: {_fmt(datetime.now(timezone.utc))}</p>"
-    )
-    await _send_all(recipients, subject, html)
-    logger.info("Missed clock-in alert sent for schedule %s to %s", sched.get("_id"), recipients)
+    await _dispatch_alert(db, sched, "missed_clockin")
 
 
 async def send_geofence_exit(db, sched: dict, at: datetime, lat, lng):
-    recipients, ctx = await resolve_recipients(db, sched)
-    officer = (ctx["officer"] or {}).get("name", "The officer")
-    subject = f"🚨 Officer left the geofence — {officer}"
-    html = (
-        f"<h2>Geofence Exit Alert</h2>"
-        f"<p>{officer} has left the assigned geofence zone during an active shift.</p>"
-        f"<p>{_shift_line(sched, ctx)}</p>"
-        f"<p><b>Left at:</b> {_fmt(at)}<br>"
-        f"<b>Reported position:</b> {lat}, {lng}</p>"
-    )
-    await _send_all(recipients, subject, html)
-    logger.info("Geofence exit alert sent for schedule %s to %s", sched.get("_id"), recipients)
+    await _dispatch_alert(db, sched, "geofence_exit",
+                          extra={"position": f"{lat}, {lng}"})
 
 
 async def send_officer_offline(db, sched: dict, last_seen: datetime):
-    recipients, ctx = await resolve_recipients(db, sched)
-    officer = (ctx["officer"] or {}).get("name", "The officer")
-    subject = f"🔴 Officer offline — {officer}"
-    html = (
-        f"<h2>Officer Offline Alert</h2>"
-        f"<p>{officer}'s device has stopped sending location updates during an "
-        f"active shift (last seen {_fmt(last_seen)}).</p>"
-        f"<p>{_shift_line(sched, ctx)}</p>"
-        f"<p>Time of alert: {_fmt(datetime.now(timezone.utc))}</p>"
-    )
-    await _send_all(recipients, subject, html)
-    logger.info("Officer offline alert sent for schedule %s to %s", sched.get("_id"), recipients)
+    await _dispatch_alert(db, sched, "officer_offline",
+                          extra={"last_seen": _fmt(last_seen)})
 
 
 async def _scan_one(db, s: dict, now: datetime):

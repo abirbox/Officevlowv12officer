@@ -1,0 +1,25 @@
+{
+  "summary": "Frontend-only verification of Settings > Email tab (SMTP card, Test Email card, Email Templates editor). All 5 requested scenarios PASSED. Logged in as admin@example.com, dismissed portal chooser (portal-select-dispatch), opened Settings and clicked tab-email. (1) All three cards rendered: email-settings-tab, email-test-card, email-templates-card; email-status read exactly 'Not configured'. (2) template-select listed all 6 options in order: Geofence Exit Alert, Officer Offline Alert, Missed Hourly Check-In, Missed Clock-In, Missed Clock-Out, Test Email; selecting template-option-officer_offline loaded the default body. (3) Edited template-from-name='Acme Security', template-subject='QA Offline Subject 7788', template-body='<p>QA edited body 7788</p>'; clicking shortcode-officer_name appended '{{officer_name}}' to the body textarea; Save Template showed 'Template saved' toast. After a full page reload + re-navigating to Settings > Email > Officer Offline Alert, all three fields PERSISTED byte-for-byte. (4) Send Test with recipient admin@example.com produced the correct warning toast 'Email is not configured. Add SMTP settings above (or a Resend key) to send email.' - no crash, no fake success; button label correctly reflected the selected template 'Send Test (Officer Offline Alert)'. (5) Save Email Settings with empty Host/Username/From showed validation toast 'SMTP Host, Username and From Email are required'. Test data was reverted afterwards (officer_offline template restored to its defaults via PUT /api/settings/email-templates).",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "Minor UX (non-blocking): insertShortcode in EmailSettingsTab.js always appends the shortcode to the END of body_html instead of inserting at the textarea caret position. Capture selectionStart/selectionEnd on the textarea ref and splice at the caret so admins can insert mid-content.",
+    "Minor UX (non-blocking): the 'Send a Test Email' card sits ABOVE the Template selector but sends whichever template is currently selected in the card below (tplKey). The button label does surface this ('Send Test (Officer Offline Alert)'), but a dedicated template picker inside the test card - or defaulting to the 'test' template - would be less surprising.",
+    "Minor: EmailSettingsTab load() swallows the /settings/email-templates error with an empty .catch(() => {}); if that call fails the Templates card silently renders an empty dropdown with no feedback. Surface a toast/error state.",
+    "Pre-existing (also reported in iteration_8): console warning 'WebSocket connection to wss://.../api/ws/dispatch failed: WebSocket is closed before the connection is established' fires on route changes. Harmless but noisy."
+  ],
+  "updated_files": [],
+  "success_rate": {"backend": "not tested (per request)", "frontend": "100% (5/5 scenarios)"},
+  "seed_data_creation": "None. Temporarily edited the officer_offline email template for the persistence check, then restored it to the built-in defaults.",
+  "should_call_test_agent_after_fix": false,
+  "should_main_agent_self_test": false,
+  "test_credentials": "admin@example.com / admin123 (super_admin)",
+  "context_for_next_testing_agent": "Repro path: login -> portal-select-dispatch -> left nav 'Settings' (/dashboard/settings) -> [data-testid=tab-email]. Shortcode chips insert DOUBLE braces {{code}} (matches backend render()), not single braces as the review request text stated - the implementation is correct. Template persistence is verified through GET/PUT /api/settings/email-templates and survives reload. Email is intentionally unconfigured in this env, so POST /api/settings/email/test returns sent:false with the warning message; do not treat that as a failure. Real email delivery cannot be validated without SMTP creds or a Resend key.",
+  "rca_of_the_issue": "N/A - no defects found. 'Is email working' is correctly answered in the UI: status line reads 'Not configured' and the test-send returns an explicit warning naming the missing SMTP/Resend configuration rather than a silent or fake success."
+}
