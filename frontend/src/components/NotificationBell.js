@@ -9,6 +9,9 @@ import {
   DropdownMenuLabel, DropdownMenuSeparator, DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { formatDateTime } from '@/lib/datetime';
+import { playAlertChime } from '@/lib/chime';
+
+const ALERT_SOUND_TYPES = ['dispatch_officer_offline', 'dispatch_geofence_exit'];
 
 const NotificationBell = () => {
   const [notifs, setNotifs] = useState([]);
@@ -41,10 +44,14 @@ const NotificationBell = () => {
         ws.onmessage = (event) => {
           try {
             const msg = JSON.parse(event.data);
+            if (msg.type === 'dispatch_live_update') return; // map pings — not notifications
+            if (ALERT_SOUND_TYPES.includes(msg.type)) {
+              playAlertChime();
+            }
             if (msg.title) {
               toast(msg.title, { description: msg.message });
+              fetchNotifs();
             }
-            fetchNotifs();
           } catch { /* ignore malformed */ }
         };
 
